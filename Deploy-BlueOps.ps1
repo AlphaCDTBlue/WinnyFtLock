@@ -44,12 +44,6 @@ Remove-Item $requestFile -Force
 '@
 $workerScript | Out-File "$baseDir\Svc-Control-Worker.ps1" -Force -Encoding UTF8
 
-# --- Register the SYSTEM scheduled task ---
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File C:\BlueOps\Svc-Control-Worker.ps1"
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-Register-ScheduledTask -TaskName "BlueOps-SvcControl" -Action $action -Principal $principal -Force | Out-Null
-
 # --- Lock down each service that exists on this host ---
 foreach ($entry in $services.GetEnumerator()) {
     $svcName = $entry.Value
