@@ -9,7 +9,7 @@ $services = @{
     "AD"       = "NTDS"
     "DNS"      = "DNS"
     "Openfire" = "openfire"      # VERIFY actual service name on this host before running
-    "Telnet"   = "TlntSvr"
+    "Telnet"   = "inetd"
     "IIS"      = "W3SVC"
     "CA"       = "CertSvc"
 }
