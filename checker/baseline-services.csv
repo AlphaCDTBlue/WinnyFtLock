@@ -111,6 +111,7 @@ lltdsvc,C:\windows\System32\svchost.exe -k LocalService -p
 lmhosts,C:\windows\System32\svchost.exe -k LocalServiceNetworkRestricted -p
 LSM,C:\windows\system32\svchost.exe -k DcomLaunch -p
 MapsBroker,C:\windows\System32\svchost.exe -k NetworkService -p
+MDCoreSvc,"""C:\ProgramData\Microsoft\Windows Defender\platform\4.18.26090.9-0\MpDefenderCoreService.exe"""
 MozillaMaintenance,"""C:\Program Files (x86)\Mozilla Maintenance Service\maintenanceservice.exe"""
 MpKsl0e68560d,C:\ProgramData\Microsoft\Windows Defender\Definition Updates\Default\MpKsl0e68560d.sys
 MpKsl70ec81a4,C:\ProgramData\Microsoft\Windows Defender\Definition Updates\Default\MpKsl70ec81a4.sys
@@ -248,12 +249,14 @@ Wcmsvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
 WdiServiceHost,C:\windows\System32\svchost.exe -k LocalService -p
 WdiSystemHost,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
 WdNisSvc,"""C:\Program Files\Windows Defender\NisSrv.exe"""
+WdNisSvc,"""C:\ProgramData\Microsoft\Windows Defender\platform\4.18.26090.9-0\NisSrv.exe"""
 Wecsvc,C:\windows\system32\svchost.exe -k NetworkService -p
 WEPHOSTSVC,C:\windows\system32\svchost.exe -k WepHostSvcGroup
 wercplsupport,C:\windows\System32\svchost.exe -k netsvcs -p
 WerSvc,C:\windows\System32\svchost.exe -k WerSvcGroup
 WiaRpc,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
 WinDefend,"""C:\Program Files\Windows Defender\MsMpEng.exe"""
+WinDefend,"""C:\ProgramData\Microsoft\Windows Defender\platform\4.18.26090.9-0\MsMpEng.exe"""
 WinHttpAutoProxySvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
 Winmgmt,C:\windows\system32\svchost.exe -k netsvcs -p
 WinRM,C:\windows\System32\svchost.exe -k NetworkService -p

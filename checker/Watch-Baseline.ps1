@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 Read-only host inventory monitor. Does not stop/change processes or services.
 Baseline input defaults to the two CSVs beside this script.
@@ -6,15 +6,21 @@ Outputs go to the invoking user's Desktop, in a new folder for each run.
 #>
 [CmdletBinding()]
 param(
-    [string]$ProcessBaseline = (Join-Path $PSScriptRoot 'baseline-processes.csv'),
-    [string]$ServiceBaseline = (Join-Path $PSScriptRoot 'baseline-services.csv'),
+    [string]$ProcessBaseline,
+    [string]$ServiceBaseline,
     [ValidateRange(1,86400)][int]$IntervalSeconds = 30,
     [string]$OutputDirectory,
     [switch]$Once,
-    [switch]$IncludeStoppedServices
+    [switch]$IncludeStoppedServices,
+    [switch]$AllowBaselineMissingPaths
 )
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+# Resolve defaults after parameter binding (Windows PowerShell 5.1).
+$baselineRoot = $PSScriptRoot
+if (-not $baselineRoot) { $baselineRoot = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ProcessBaseline) { $ProcessBaseline = Join-Path $baselineRoot 'baseline-processes.csv' }
+if (-not $ServiceBaseline) { $ServiceBaseline = Join-Path $baselineRoot 'baseline-services.csv' }
 
 function Get-Clean([object]$Value) {
     $s = ([string]$Value).Trim()
@@ -39,19 +45,24 @@ function Read-Baseline([string]$File) {
     }
     $pairs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $missingPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($row in $rows) {
         $n = Get-Clean $row.Name
         $p = Get-Clean $row.Path
         if (-not $n) { continue }
         [void]$names.Add($n)
-        # Unknown baseline paths never authorize a path or a missing path.
+        # Missing paths are tracked separately, never as a wildcard for a real path.
         if ($p) { [void]$pairs.Add((Get-Key $n $p)) }
+        else { [void]$missingPaths.Add($n) }
     }
     if ($names.Count -eq 0) { throw "Baseline CSV has no names: $File" }
-    return @{ Pairs = $pairs; Names = $names }
+    return @{ Pairs = $pairs; Names = $names; MissingPaths = $missingPaths }
 }
-function Get-Reason($Baseline, [string]$Name, [string]$Path) {
-    if (-not $Path) { return 'PathUnavailable' }
+function Get-Reason($Baseline, [string]$Name, [string]$Path, [switch]$AllowMissingPath) {
+    if (-not $Path) {
+        if ($AllowMissingPath -and $Baseline.MissingPaths.Contains($Name)) { return '' }
+        return 'PathUnavailable'
+    }
     if ($Baseline.Pairs.Contains((Get-Key $Name $Path))) { return '' }
     if ($Baseline.Names.Contains($Name)) { return 'DifferentPath' }
     return 'NewName'
@@ -130,7 +141,11 @@ function Save-Findings($Store, [string]$Destination) {
 }
 Write-Host "Baseline watcher: $OutputDirectory"
 Write-Host "Poll interval: $IntervalSeconds seconds. Ctrl+C stops. Familiar = name + path from any host."
-Write-Host 'Blank/inaccessible paths are reported for review. Run elevated to improve path visibility.'
+if ($AllowBaselineMissingPaths) {
+    Write-Warning 'Known blank-path process entries are matched by name only. Unrecognized names and different visible paths still surface.'
+} else {
+    Write-Host 'Blank/inaccessible paths are reported for review. Run elevated to improve path visibility.'
+}
 try {
     do {
         $time = [DateTime]::UtcNow.ToString('o')
@@ -140,7 +155,7 @@ try {
             foreach ($item in $items) {
                 $n = Get-Clean $item.Name
                 $p = Get-Clean $item.ExecutablePath
-                $reason = Get-Reason $processSet $n $p
+                $reason = Get-Reason $processSet $n $p -AllowMissingPath:$AllowBaselineMissingPaths
                 if ($reason) { Update-Finding $processFindings $pollSeen $n $p $reason $time $item 'Process' }
             }
         } catch { Write-WatcherError 'Process inventory' $_.Exception.Message }

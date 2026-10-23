@@ -18,6 +18,7 @@ csrss.exe,C:\Windows\System32\csrss.exe
 ctfmon.exe,C:\windows\system32\ctfmon.exe
 cvtres.exe,C:\Windows\Microsoft.NET\Framework64\v4.0.30319\cvtres.exe
 daemon.exe,C:\KTS\daemon.exe
+DefenderSessionHelper.exe,
 DeviceCensus.exe,C:\Windows\System32\DeviceCensus.exe
 dfsrs.exe,C:\windows\system32\DFSRs.exe
 dfssvc.exe,C:\windows\system32\dfssvc.exe
@@ -45,13 +46,17 @@ Microsoft.ActiveDirectory.WebServices.exe,C:\windows\ADWS\Microsoft.ActiveDirect
 mmc.exe,C:\windows\system32\mmc.exe
 mobsync.exe,C:\Windows\System32\mobsync.exe
 MpCmdRun.exe,C:\Program Files\Windows Defender\MpCmdRun.exe
+MpDefenderCoreService.exe,
+MpDefenderCoreService.exe,C:\ProgramData\Microsoft\Windows Defender\platform\4.18.26090.9-0\MpDefenderCoreService.exe
 msdtc.exe,C:\windows\System32\msdtc.exe
 MsMpEng.exe,
 MsMpEng.exe,C:\Program Files\Windows Defender\MsMpEng.exe
+MsMpEng.exe,C:\ProgramData\Microsoft\Windows Defender\platform\4.18.26090.9-0\MsMpEng.exe
 mstsc.exe,C:\Windows\System32\mstsc.exe
 MusNotification.exe,C:\Windows\System32\MusNotification.exe
 NETSTAT.EXE,C:\Windows\System32\NETSTAT.EXE
 NisSrv.exe,
+NisSrv.exe,C:\ProgramData\Microsoft\Windows Defender\platform\4.18.26090.9-0\NisSrv.exe
 nltest.exe,C:\Windows\System32\nltest.exe
 notepad.exe,C:\Windows\System32\notepad.exe
 openfire-service.exe,C:\Program Files\Openfire\bin\openfire-service.exe
@@ -65,6 +70,8 @@ rundll32.exe,C:\Windows\System32\rundll32.exe
 rundll32.exe,C:\Windows\SysWOW64\rundll32.exe
 RuntimeBroker.exe,C:\Windows\System32\RuntimeBroker.exe
 SearchUI.exe,C:\Windows\SystemApps\Microsoft.Windows.Cortana_cw5n1h2txyewy\SearchUI.exe
+SecurityHealthService.exe,
+SecurityHealthService.exe,C:\windows\system32\SecurityHealthService.exe
 SecurityHealthSystray.exe,C:\Windows\System32\SecurityHealthSystray.exe
 ServerManager.exe,C:\windows\system32\ServerManager.exe
 ServerManagerLauncher.exe,C:\Windows\System32\ServerManagerLauncher.exe
