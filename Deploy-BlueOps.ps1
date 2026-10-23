@@ -15,7 +15,7 @@ $services = @{
 }
 
 # SYSTEM only gets stop/start/modify rights. Administrators + everyone else: read-only.
-$lockedSDDL = "D:(D;;DCLCWPDTSD;;;BA)(D;;DCLCWPDTSD;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPLORC;;;BA)"
+$lockedSDDL = "D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)"
 
 # --- Write the SYSTEM-run worker script ---
 $workerScript = @'
