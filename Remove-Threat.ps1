@@ -21,7 +21,8 @@
  
 .PARAMETER Path
     One or more file paths (wildcards allowed). If omitted, Get-ThreatPath.bat
-    (must sit next to this script) asks for the path interactively.
+    (must sit next to this script) makes the operator type the exact full path
+    including the file name, e.g. C:\Windows\System32\getridofme.txt
 .PARAMETER Action
     Prompt (default) | Quarantine | Delete | Both
     Both = keep a hash-verified evidence copy in quarantine, then delete the original.
@@ -293,29 +294,9 @@ function Restore-Quarantined {
 # ----------------------------------------------------------------------------
 # PER-FILE WORKFLOW
 # ----------------------------------------------------------------------------
-# ---- Interactive target selection (via Get-ThreatPath.bat) ------------------
-function Select-File {
-    param([System.IO.FileInfo[]]$Files)
-    $max  = 40
-    $show = @($Files | Select-Object -First $max)
-    Write-Host ""
-    Write-Host "Multiple candidates - pick the file to act on:" -ForegroundColor Cyan
-    for ($i = 0; $i -lt $show.Count; $i++) {
-        $f = $show[$i]
-        $sig = '?'
-        try { $sig = [string](Get-AuthenticodeSignature -LiteralPath $f.FullName).Status } catch {}
-        Write-Host ('{0,3}  {1,-40} {2,10:N0} B  {3:yyyy-MM-dd HH:mm}  {4}' -f ($i + 1), $f.Name, $f.Length, $f.LastWriteTime, $sig)
-    }
-    if ($Files.Count -gt $max) { Write-Host "  (showing newest $max of $($Files.Count))" -ForegroundColor Yellow }
-    while ($true) {
-        $r = Read-Host "Number (1-$($show.Count)) or C to cancel"
-        if ($r -and $r.Trim().ToUpper() -eq 'C') { return $null }
-        $n = 0
-        if ([int]::TryParse($r, [ref]$n) -and $n -ge 1 -and $n -le $show.Count) { return $show[$n - 1].FullName }
-        Write-Host '  Invalid choice.' -ForegroundColor Yellow
-    }
-}
- 
+# ---- Interactive target entry (via Get-ThreatPath.bat) ----------------------
+# The operator must type the EXACT full path including the file name,
+# e.g. C:\Windows\System32\getridofme.txt. No folder browsing or guessing.
 function Get-TargetFromLauncher {
     $bat = Join-Path $PSScriptRoot 'Get-ThreatPath.bat'
     $raw = $null
@@ -330,40 +311,25 @@ function Get-TargetFromLauncher {
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     } else {
         Write-Log "Launcher not found ($bat); using console prompt instead." 'WARN'
-        $raw = Read-Host 'Full path to the file (or the folder it is in)'
+        $raw = Read-Host 'Exact full path including file name (e.g. C:\Windows\System32\file.txt)'
     }
     if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
  
     try {
         $p = [Environment]::ExpandEnvironmentVariables($raw.Trim().Trim('"').Trim())
  
-        # 1) Exact file
         if (Test-Path -LiteralPath $p -PathType Leaf) { return (Get-Item -LiteralPath $p -Force).FullName }
  
-        # 2) Folder only -> list exe/dll-type files and let the user pick
         if (Test-Path -LiteralPath $p -PathType Container) {
-            $dir  = (Get-Item -LiteralPath $p -Force).FullName
-            $exts = '.exe', '.dll', '.sys', '.scr', '.ocx', '.cpl', '.com'
-            $files = @(Get-ChildItem -LiteralPath $dir -File -Force -ErrorAction SilentlyContinue |
-                Where-Object { $exts -contains $_.Extension.ToLower() } | Sort-Object LastWriteTime -Descending)
-            if ($files.Count -eq 0) { Write-Log "No EXE/DLL-type files in $dir - cancelled." 'WARN'; return $null }
-            return Select-File -Files $files
+            Write-Log "'$p' is a folder. Re-run and type the exact path INCLUDING the file name - cancelled." 'WARN'
+            return $null
         }
  
-        # 3) Full path typed without an extension
-        $guess = @()
-        foreach ($e in '.exe', '.dll', '.sys', '.scr') {
-            if (Test-Path -LiteralPath "$p$e" -PathType Leaf) { $guess += Get-Item -LiteralPath "$p$e" -Force }
-        }
-        if ($guess.Count -eq 1) { Write-Host "No exact match; using $($guess[0].FullName)" -ForegroundColor Yellow; return $guess[0].FullName }
-        if ($guess.Count -gt 1) { return Select-File -Files $guess }
- 
-        # 4) Not there -> cancel
         $parent = Split-Path -Parent $p
         if ($parent -and (Test-Path -LiteralPath $parent -PathType Container)) {
             Write-Log "Folder exists but the file was not found: $p - cancelled." 'WARN'
         } else {
-            Write-Log "Path not found: $p - cancelled." 'WARN'
+            Write-Log "File not found: $p - cancelled." 'WARN'
         }
     } catch {
         Write-Log "Could not evaluate path '$raw': $($_.Exception.Message)" 'ERROR'
