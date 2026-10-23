@@ -1,0 +1,273 @@
+﻿Name,Path
+ADWS,C:\windows\ADWS\Microsoft.ActiveDirectory.WebServices.exe
+AJRouter,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+ALG,C:\windows\System32\alg.exe
+AppHostSvc,C:\windows\system32\svchost.exe -k apphost
+AppIDSvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+Appinfo,C:\windows\system32\svchost.exe -k netsvcs -p
+AppMgmt,C:\windows\system32\svchost.exe -k netsvcs -p
+AppReadiness,C:\windows\System32\svchost.exe -k AppReadiness -p
+AppVClient,C:\windows\system32\AppVClient.exe
+AppXSvc,C:\windows\system32\svchost.exe -k wsappx -p
+AudioEndpointBuilder,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+Audiosrv,C:\windows\System32\svchost.exe -k LocalServiceNetworkRestricted -p
+AxInstSV,C:\windows\system32\svchost.exe -k AxInstSVGroup
+BFE,C:\windows\system32\svchost.exe -k LocalServiceNoNetworkFirewall -p
+BITS,C:\windows\System32\svchost.exe -k netsvcs -p
+BrokerInfrastructure,C:\windows\system32\svchost.exe -k DcomLaunch -p
+BTAGService,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted
+BthAvctpSvc,C:\windows\system32\svchost.exe -k LocalService -p
+bthserv,C:\windows\system32\svchost.exe -k LocalService -p
+camsvc,C:\windows\system32\svchost.exe -k appmodel -p
+CaptureService_35b4a7,C:\windows\system32\svchost.exe -k LocalService -p
+CaptureService_361fae,C:\windows\system32\svchost.exe -k LocalService -p
+CaptureService_454af,C:\windows\system32\svchost.exe -k LocalService -p
+CaptureService_c2f1d,C:\windows\system32\svchost.exe -k LocalService -p
+CaptureService_e169f7,C:\windows\system32\svchost.exe -k LocalService -p
+cbdhsvc_35b4a7,C:\windows\system32\svchost.exe -k ClipboardSvcGroup -p
+cbdhsvc_361fae,C:\windows\system32\svchost.exe -k ClipboardSvcGroup -p
+cbdhsvc_454af,C:\windows\system32\svchost.exe -k ClipboardSvcGroup -p
+cbdhsvc_c2f1d,C:\windows\system32\svchost.exe -k ClipboardSvcGroup -p
+cbdhsvc_e169f7,C:\windows\system32\svchost.exe -k ClipboardSvcGroup -p
+CDPSvc,C:\windows\system32\svchost.exe -k LocalService -p
+CDPUserSvc_35b4a7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+CDPUserSvc_361fae,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+CDPUserSvc_454af,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+CDPUserSvc_c2f1d,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+CDPUserSvc_e169f7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+CertPropSvc,C:\windows\system32\svchost.exe -k netsvcs
+CertSvc,C:\windows\system32\certsrv.exe
+ClipSVC,C:\windows\System32\svchost.exe -k wsappx -p
+cloudbase-init,"""C:\Program Files\Cloudbase Solutions\Cloudbase-Init\bin\OpenStackService.exe"" cloudbase-init ""C:\Program Files\Cloudbase Solutions\Cloudbase-Init\Python\Scripts\cloudbase-init.exe"" --config-file ""C:\Program Files\Cloudbase Solutions\Cloudbase-Init\conf\cloudbase-init.conf"""
+COMSysApp,C:\windows\system32\dllhost.exe /Processid:{02D4B3F1-FD88-11D1-960D-00805FC79235}
+ConsentUxUserSvc_35b4a7,C:\windows\system32\svchost.exe -k DevicesFlow
+ConsentUxUserSvc_361fae,C:\windows\system32\svchost.exe -k DevicesFlow
+ConsentUxUserSvc_454af,C:\windows\system32\svchost.exe -k DevicesFlow
+ConsentUxUserSvc_c2f1d,C:\windows\system32\svchost.exe -k DevicesFlow
+ConsentUxUserSvc_e169f7,C:\windows\system32\svchost.exe -k DevicesFlow
+CoreMessagingRegistrar,C:\windows\system32\svchost.exe -k LocalServiceNoNetwork -p
+CryptSvc,C:\windows\system32\svchost.exe -k NetworkService -p
+CscService,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+DcomLaunch,C:\windows\system32\svchost.exe -k DcomLaunch -p
+defragsvc,C:\windows\system32\svchost.exe -k defragsvc
+DeviceAssociationService,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+DeviceInstall,C:\windows\system32\svchost.exe -k DcomLaunch -p
+DevicePickerUserSvc_35b4a7,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicePickerUserSvc_361fae,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicePickerUserSvc_454af,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicePickerUserSvc_c2f1d,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicePickerUserSvc_e169f7,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicesFlowUserSvc_35b4a7,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicesFlowUserSvc_361fae,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicesFlowUserSvc_454af,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicesFlowUserSvc_c2f1d,C:\windows\system32\svchost.exe -k DevicesFlow
+DevicesFlowUserSvc_e169f7,C:\windows\system32\svchost.exe -k DevicesFlow
+DevQueryBroker,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+Dfs,C:\windows\system32\dfssvc.exe
+DFSR,C:\windows\system32\DFSRs.exe
+Dhcp,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+diagnosticshub.standardcollector.service,C:\windows\system32\DiagSvcs\DiagnosticsHub.StandardCollector.Service.exe
+DiagTrack,C:\windows\System32\svchost.exe -k utcsvc -p
+DmEnrollmentSvc,C:\windows\system32\svchost.exe -k netsvcs -p
+dmwappushservice,C:\windows\system32\svchost.exe -k netsvcs -p
+DNS,C:\windows\system32\dns.exe
+Dnscache,C:\windows\system32\svchost.exe -k NetworkService -p
+DoSvc,C:\windows\System32\svchost.exe -k NetworkService -p
+dot3svc,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+DPS,C:\windows\System32\svchost.exe -k LocalServiceNoNetwork -p
+DsmSvc,C:\windows\system32\svchost.exe -k netsvcs -p
+DsRoleSvc,C:\windows\System32\lsass.exe
+DsSvc,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+Eaphost,C:\windows\System32\svchost.exe -k netsvcs -p
+EFS,C:\windows\System32\lsass.exe
+embeddedmode,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+EntAppSvc,C:\windows\system32\svchost.exe -k appmodel -p
+EventLog,C:\windows\System32\svchost.exe -k LocalServiceNetworkRestricted -p
+EventSystem,C:\windows\system32\svchost.exe -k LocalService -p
+fdPHost,C:\windows\system32\svchost.exe -k LocalService -p
+FDResPub,C:\windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p
+FontCache,C:\windows\system32\svchost.exe -k LocalService -p
+FrameServer,C:\windows\System32\svchost.exe -k Camera
+gpsvc,C:\windows\system32\svchost.exe -k netsvcs -p
+GraphicsPerfSvc,C:\windows\System32\svchost.exe -k GraphicsPerfSvcGroup
+hidserv,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+HvHost,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+icssvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+IKEEXT,C:\windows\system32\svchost.exe -k netsvcs -p
+InstallService,C:\windows\System32\svchost.exe -k netsvcs -p
+iphlpsvc,C:\windows\System32\svchost.exe -k NetSvcs -p
+IsmServ,C:\windows\System32\ismserv.exe
+Kdc,C:\windows\System32\lsass.exe
+KdsSvc,C:\windows\system32\lsass.exe
+KeyIso,C:\windows\system32\lsass.exe
+KPSSVC,C:\windows\system32\svchost.exe -k KpsSvcGroup
+KpyM Telnet SSH Server v1.19c,"""C:\KTS\daemon.exe"""
+KtmRm,C:\windows\System32\svchost.exe -k NetworkServiceAndNoImpersonation -p
+LanmanServer,C:\windows\System32\svchost.exe -k smbsvcs
+LanmanWorkstation,C:\windows\System32\svchost.exe -k NetworkService -p
+lfsvc,C:\windows\system32\svchost.exe -k netsvcs -p
+LicenseManager,C:\windows\System32\svchost.exe -k LocalService -p
+lltdsvc,C:\windows\System32\svchost.exe -k LocalService -p
+lmhosts,C:\windows\System32\svchost.exe -k LocalServiceNetworkRestricted -p
+LSM,C:\windows\system32\svchost.exe -k DcomLaunch -p
+MapsBroker,C:\windows\System32\svchost.exe -k NetworkService -p
+MozillaMaintenance,"""C:\Program Files (x86)\Mozilla Maintenance Service\maintenanceservice.exe"""
+MpKsl0e68560d,C:\ProgramData\Microsoft\Windows Defender\Definition Updates\Default\MpKsl0e68560d.sys
+MpKsl70ec81a4,C:\ProgramData\Microsoft\Windows Defender\Definition Updates\Default\MpKsl70ec81a4.sys
+MpKslfd519e26,C:\ProgramData\Microsoft\Windows Defender\Definition Updates\Default\MpKslfd519e26.sys
+mpssvc,C:\windows\system32\svchost.exe -k LocalServiceNoNetworkFirewall -p
+MSDTC,C:\windows\System32\msdtc.exe
+MSiSCSI,C:\windows\system32\svchost.exe -k netsvcs -p
+msiserver,C:\windows\system32\msiexec.exe /V
+NcaSvc,C:\windows\System32\svchost.exe -k NetSvcs -p
+NcbService,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+Netlogon,C:\windows\system32\lsass.exe
+Netman,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+netprofm,C:\windows\System32\svchost.exe -k LocalService -p
+NetSetupSvc,C:\windows\System32\svchost.exe -k netsvcs -p
+NetTcpPortSharing,C:\windows\Microsoft.NET\Framework64\v4.0.30319\SMSvcHost.exe
+NgcCtnrSvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+NgcSvc,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+NlaSvc,C:\windows\System32\svchost.exe -k NetworkService -p
+nsi,C:\windows\system32\svchost.exe -k LocalService -p
+NTDS,C:\windows\System32\lsass.exe
+NtFrs,C:\windows\system32\ntfrs.exe
+Openfire,"""C:\Program Files\Openfire\bin\openfire-service.exe"""
+PcaSvc,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+PerfHost,C:\windows\SysWow64\perfhost.exe
+PhoneSvc,C:\windows\system32\svchost.exe -k LocalService -p
+PimIndexMaintenanceSvc_35b4a7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+PimIndexMaintenanceSvc_361fae,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+PimIndexMaintenanceSvc_454af,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+PimIndexMaintenanceSvc_c2f1d,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+PimIndexMaintenanceSvc_e169f7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+pla,C:\windows\System32\svchost.exe -k LocalServiceNoNetwork -p
+PlugPlay,C:\windows\system32\svchost.exe -k DcomLaunch -p
+PolicyAgent,C:\windows\system32\svchost.exe -k NetworkServiceNetworkRestricted -p
+Power,C:\windows\system32\svchost.exe -k DcomLaunch -p
+PrintNotify,C:\windows\system32\svchost.exe -k print
+PrintWorkflowUserSvc_35b4a7,C:\windows\system32\svchost.exe -k PrintWorkflow
+PrintWorkflowUserSvc_361fae,C:\windows\system32\svchost.exe -k PrintWorkflow
+PrintWorkflowUserSvc_454af,C:\windows\system32\svchost.exe -k PrintWorkflow
+PrintWorkflowUserSvc_c2f1d,C:\windows\system32\svchost.exe -k PrintWorkflow
+PrintWorkflowUserSvc_e169f7,C:\windows\system32\svchost.exe -k PrintWorkflow
+ProfSvc,C:\windows\system32\svchost.exe -k netsvcs -p
+PushToInstall,C:\windows\System32\svchost.exe -k netsvcs -p
+QEMU Guest Agent VSS Provider,C:\windows\system32\dllhost.exe /Processid:{3C3E8BF9-BA26-44C6-B915-58A7E7AA8194}
+QEMU-GA,"""C:\Program Files\Qemu-ga\qemu-ga.exe"" -d --retry-path"
+QWAVE,C:\windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p
+RasAuto,C:\windows\System32\svchost.exe -k netsvcs -p
+RasMan,C:\windows\System32\svchost.exe -k netsvcs
+RemoteAccess,C:\windows\System32\svchost.exe -k netsvcs
+RemoteRegistry,C:\windows\system32\svchost.exe -k localService -p
+RmSvc,C:\windows\System32\svchost.exe -k LocalServiceNetworkRestricted
+RpcEptMapper,C:\windows\system32\svchost.exe -k RPCSS -p
+RpcLocator,C:\windows\system32\locator.exe
+RpcSs,C:\windows\system32\svchost.exe -k rpcss -p
+RSoPProv,C:\windows\system32\RSoPProv.exe
+sacsvr,C:\windows\System32\svchost.exe -k netsvcs -p
+SamSs,C:\windows\system32\lsass.exe
+SCardSvr,C:\windows\system32\svchost.exe -k LocalServiceAndNoImpersonation
+ScDeviceEnum,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted
+Schedule,C:\windows\system32\svchost.exe -k netsvcs -p
+SCPolicySvc,C:\windows\system32\svchost.exe -k netsvcs
+seclogon,C:\windows\system32\svchost.exe -k netsvcs -p
+SecurityHealthService,C:\windows\system32\SecurityHealthService.exe
+SEMgrSvc,C:\windows\system32\svchost.exe -k LocalService -p
+SENS,C:\windows\system32\svchost.exe -k netsvcs -p
+Sense,"""C:\Program Files\Windows Defender Advanced Threat Protection\MsSense.exe"""
+SensorDataService,C:\windows\System32\SensorDataService.exe
+SensorService,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+SensrSvc,C:\windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p
+SessionEnv,C:\windows\System32\svchost.exe -k netsvcs -p
+SgrmBroker,C:\windows\system32\SgrmBroker.exe
+SharedAccess,C:\windows\System32\svchost.exe -k netsvcs -p
+ShellHWDetection,C:\windows\System32\svchost.exe -k netsvcs -p
+shpamsvc,C:\windows\System32\svchost.exe -k netsvcs -p
+smphost,C:\windows\System32\svchost.exe -k smphost
+SNMPTRAP,C:\windows\System32\snmptrap.exe
+Spooler,C:\windows\System32\spoolsv.exe
+sppsvc,C:\windows\system32\sppsvc.exe
+SSDPSRV,C:\windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p
+ssh-agent,C:\windows\System32\OpenSSH\ssh-agent.exe
+SstpSvc,C:\windows\system32\svchost.exe -k LocalService -p
+StateRepository,C:\windows\system32\svchost.exe -k appmodel -p
+stisvc,C:\windows\system32\svchost.exe -k imgsvc
+StorSvc,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+svsvc,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+swprv,C:\windows\System32\svchost.exe -k swprv
+SysMain,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+Sysmon64,C:\windows\Sysmon64.exe
+SystemEventsBroker,C:\windows\system32\svchost.exe -k DcomLaunch -p
+TabletInputService,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+tapisrv,C:\windows\System32\svchost.exe -k NetworkService -p
+TermService,C:\windows\System32\svchost.exe -k termsvcs
+Themes,C:\windows\System32\svchost.exe -k netsvcs -p
+TieringEngineService,C:\windows\system32\TieringEngineService.exe
+TimeBrokerSvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+TokenBroker,C:\windows\system32\svchost.exe -k netsvcs -p
+TrkWks,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+TrustedInstaller,C:\windows\servicing\TrustedInstaller.exe
+tzautoupdate,C:\windows\system32\svchost.exe -k LocalService -p
+UALSVC,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+UevAgentService,C:\windows\system32\AgentService.exe
+UmRdpService,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+UnistoreSvc_35b4a7,C:\windows\System32\svchost.exe -k UnistackSvcGroup
+UnistoreSvc_361fae,C:\windows\System32\svchost.exe -k UnistackSvcGroup
+UnistoreSvc_454af,C:\windows\System32\svchost.exe -k UnistackSvcGroup
+UnistoreSvc_c2f1d,C:\windows\System32\svchost.exe -k UnistackSvcGroup
+UnistoreSvc_e169f7,C:\windows\System32\svchost.exe -k UnistackSvcGroup
+upnphost,C:\windows\system32\svchost.exe -k LocalServiceAndNoImpersonation -p
+UserDataSvc_35b4a7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+UserDataSvc_361fae,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+UserDataSvc_454af,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+UserDataSvc_c2f1d,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+UserDataSvc_e169f7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+UserManager,C:\windows\system32\svchost.exe -k netsvcs -p
+UsoSvc,C:\windows\system32\svchost.exe -k netsvcs -p
+VaultSvc,C:\windows\system32\lsass.exe
+vds,C:\windows\System32\vds.exe
+vmicguestinterface,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+vmicheartbeat,C:\windows\system32\svchost.exe -k ICService -p
+vmickvpexchange,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+vmicrdv,C:\windows\system32\svchost.exe -k ICService -p
+vmicshutdown,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+vmictimesync,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+vmicvmsession,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+vmicvss,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+VSS,C:\windows\system32\vssvc.exe
+W32Time,C:\windows\system32\svchost.exe -k LocalService
+W3LOGSVC,C:\windows\system32\svchost.exe -k apphost
+W3SVC,C:\windows\system32\svchost.exe -k iissvcs
+WaaSMedicSvc,C:\windows\system32\svchost.exe -k wusvcs -p
+WalletService,C:\windows\System32\svchost.exe -k appmodel -p
+WarpJITSvc,C:\windows\System32\svchost.exe -k LocalServiceNetworkRestricted
+WAS,C:\windows\system32\svchost.exe -k iissvcs
+WbioSrvc,C:\windows\system32\svchost.exe -k WbioSvcGroup
+Wcmsvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+WdiServiceHost,C:\windows\System32\svchost.exe -k LocalService -p
+WdiSystemHost,C:\windows\System32\svchost.exe -k LocalSystemNetworkRestricted -p
+WdNisSvc,"""C:\Program Files\Windows Defender\NisSrv.exe"""
+Wecsvc,C:\windows\system32\svchost.exe -k NetworkService -p
+WEPHOSTSVC,C:\windows\system32\svchost.exe -k WepHostSvcGroup
+wercplsupport,C:\windows\System32\svchost.exe -k netsvcs -p
+WerSvc,C:\windows\System32\svchost.exe -k WerSvcGroup
+WiaRpc,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted -p
+WinDefend,"""C:\Program Files\Windows Defender\MsMpEng.exe"""
+WinHttpAutoProxySvc,C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p
+Winmgmt,C:\windows\system32\svchost.exe -k netsvcs -p
+WinRM,C:\windows\System32\svchost.exe -k NetworkService -p
+wisvc,C:\windows\system32\svchost.exe -k netsvcs -p
+wlidsvc,C:\windows\system32\svchost.exe -k netsvcs -p
+WLMS,C:\windows\system32\wlms\wlms.exe
+wmiApSrv,C:\windows\system32\wbem\WmiApSrv.exe
+WMPNetworkSvc,"""C:\Program Files\Windows Media Player\wmpnetwk.exe"""
+WPDBusEnum,C:\windows\system32\svchost.exe -k LocalSystemNetworkRestricted
+WpnService,C:\windows\system32\svchost.exe -k netsvcs -p
+WpnUserService_35b4a7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+WpnUserService_361fae,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+WpnUserService_454af,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+WpnUserService_c2f1d,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+WpnUserService_e169f7,C:\windows\system32\svchost.exe -k UnistackSvcGroup
+WSearch,C:\windows\system32\SearchIndexer.exe /Embedding
+wuauserv,C:\windows\system32\svchost.exe -k netsvcs -p

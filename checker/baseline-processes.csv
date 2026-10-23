@@ -1,0 +1,102 @@
+﻿Name,Path
+<unknown process>,
+ApplicationFrameHost.exe,C:\windows\system32\ApplicationFrameHost.exe
+backgroundTaskHost.exe,C:\Windows\System32\backgroundTaskHost.exe
+certsrv.exe,C:\windows\system32\certsrv.exe
+certutil.exe,C:\Windows\System32\certutil.exe
+chcp.com,C:\Windows\SysWOW64\chcp.com
+cmd.exe,C:\Windows\System32\cmd.exe
+cmd.exe,C:\Windows\SysWOW64\cmd.exe
+conhost.exe,
+conhost.exe,C:\Windows\System32\conhost.exe
+crashhelper.exe,C:\Program Files\Mozilla Firefox\crashhelper.exe
+crashreporter.exe,C:\Program Files\Mozilla Firefox\crashreporter.exe
+CredentialUIBroker.exe,C:\Windows\System32\CredentialUIBroker.exe
+csc.exe,C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+csrss.exe,
+csrss.exe,C:\Windows\System32\csrss.exe
+ctfmon.exe,C:\windows\system32\ctfmon.exe
+cvtres.exe,C:\Windows\Microsoft.NET\Framework64\v4.0.30319\cvtres.exe
+daemon.exe,C:\KTS\daemon.exe
+DeviceCensus.exe,C:\Windows\System32\DeviceCensus.exe
+dfsrs.exe,C:\windows\system32\DFSRs.exe
+dfssvc.exe,C:\windows\system32\dfssvc.exe
+dllhost.exe,C:\windows\system32\dllhost.exe
+dns.exe,C:\windows\system32\dns.exe
+dsregcmd.exe,C:\Windows\System32\dsregcmd.exe
+dwm.exe,C:\windows\system32\dwm.exe
+explorer.exe,C:\windows\Explorer.EXE
+firefox.exe,C:\Program Files\Mozilla Firefox\firefox.exe
+fontdrvhost.exe,C:\windows\system32\fontdrvhost.exe
+fsquirt.exe,C:\Windows\System32\fsquirt.exe
+gpscript.exe,C:\Windows\System32\gpscript.exe
+HelpPane.exe,C:\Windows\HelpPane.exe
+HOSTNAME.EXE,C:\Windows\System32\HOSTNAME.EXE
+HOSTNAME.EXE,C:\Windows\SysWOW64\HOSTNAME.EXE
+icacls.exe,C:\Windows\System32\icacls.exe
+ie4uinit.exe,C:\Windows\System32\ie4uinit.exe
+iexplore.exe,C:\Program Files (x86)\Internet Explorer\iexplore.exe
+iexplore.exe,C:\Program Files\internet explorer\iexplore.exe
+ismserv.exe,C:\windows\System32\ismserv.exe
+logoff.exe,C:\Windows\System32\logoff.exe
+LogonUI.exe,C:\Windows\System32\LogonUI.exe
+lsass.exe,C:\windows\system32\lsass.exe
+Microsoft.ActiveDirectory.WebServices.exe,C:\windows\ADWS\Microsoft.ActiveDirectory.WebServices.exe
+mmc.exe,C:\windows\system32\mmc.exe
+mobsync.exe,C:\Windows\System32\mobsync.exe
+MpCmdRun.exe,C:\Program Files\Windows Defender\MpCmdRun.exe
+msdtc.exe,C:\windows\System32\msdtc.exe
+MsMpEng.exe,
+MsMpEng.exe,C:\Program Files\Windows Defender\MsMpEng.exe
+mstsc.exe,C:\Windows\System32\mstsc.exe
+MusNotification.exe,C:\Windows\System32\MusNotification.exe
+NETSTAT.EXE,C:\Windows\System32\NETSTAT.EXE
+NisSrv.exe,
+nltest.exe,C:\Windows\System32\nltest.exe
+notepad.exe,C:\Windows\System32\notepad.exe
+openfire-service.exe,C:\Program Files\Openfire\bin\openfire-service.exe
+OpenWith.exe,C:\Windows\System32\OpenWith.exe
+pingsender.exe,C:\Program Files\Mozilla Firefox\pingsender.exe
+powershell.exe,C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+qemu-ga.exe,C:\Program Files\Qemu-ga\qemu-ga.exe
+rdpclip.exe,C:\Windows\System32\rdpclip.exe
+Registry,
+rundll32.exe,C:\Windows\System32\rundll32.exe
+rundll32.exe,C:\Windows\SysWOW64\rundll32.exe
+RuntimeBroker.exe,C:\Windows\System32\RuntimeBroker.exe
+SearchUI.exe,C:\Windows\SystemApps\Microsoft.Windows.Cortana_cw5n1h2txyewy\SearchUI.exe
+SecurityHealthSystray.exe,C:\Windows\System32\SecurityHealthSystray.exe
+ServerManager.exe,C:\windows\system32\ServerManager.exe
+ServerManagerLauncher.exe,C:\Windows\System32\ServerManagerLauncher.exe
+services.exe,
+services.exe,C:\Windows\System32\services.exe
+session.exe,C:\KTS\session.exe
+SettingSyncHost.exe,C:\Windows\System32\SettingSyncHost.exe
+ShellExperienceHost.exe,C:\Windows\SystemApps\ShellExperienceHost_cw5n1h2txyewy\ShellExperienceHost.exe
+shlex.exe,
+shlex.exe,C:\KTS\shlex.exe
+sihost.exe,C:\windows\system32\sihost.exe
+smartscreen.exe,C:\Windows\System32\smartscreen.exe
+smss.exe,
+smss.exe,C:\Windows\System32\smss.exe
+spoolsv.exe,C:\windows\System32\spoolsv.exe
+sppsvc.exe,C:\Windows\System32\sppsvc.exe
+svchost.exe,C:\Windows\System32\svchost.exe
+Sysmon64.exe,
+System,
+System Idle Process,
+taskhostw.exe,C:\windows\system32\taskhostw.exe
+TSTheme.exe,C:\Windows\System32\TSTheme.exe
+unregmp2.exe,C:\Windows\System32\unregmp2.exe
+unsecapp.exe,C:\windows\system32\wbem\unsecapp.exe
+userinit.exe,C:\Windows\System32\userinit.exe
+w3wp.exe,C:\Windows\System32\inetsrv\w3wp.exe
+wevtutil.exe,C:\Windows\System32\wevtutil.exe
+whoami.exe,C:\Windows\System32\whoami.exe
+whoami.exe,C:\Windows\SysWOW64\whoami.exe
+wininit.exe,
+winlogon.exe,C:\windows\system32\winlogon.exe
+winrshost.exe,C:\Windows\System32\winrshost.exe
+wlms.exe,C:\windows\system32\wlms\wlms.exe
+WmiPrvSE.exe,C:\windows\system32\wbem\wmiprvse.exe
+wsqmcons.exe,C:\Windows\System32\wsqmcons.exe
