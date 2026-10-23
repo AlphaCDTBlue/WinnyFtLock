@@ -15,7 +15,7 @@ $services = @{
 }
 
 # SYSTEM only gets stop/start/modify rights. Administrators + everyone else: read-only.
-$lockedSDDL = "D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)"
+$lockedSDDL = $lockedSDDL = "D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)"
 
 # --- Write the SYSTEM-run worker script ---
 $workerScript = @'
@@ -26,7 +26,7 @@ $req = Get-Content $requestFile | ConvertFrom-Json
 $map = @{ "AD"="NTDS"; "DNS"="DNS"; "Openfire"="openfire"; "Telnet"="TlntSvr"; "IIS"="W3SVC"; "CA"="CertSvc" }
 $svcName = $map[$req.Service]
 
-$lockedSDDL   = "D:(D;;DCLCWPDTSD;;;BA)(D;;DCLCWPDTSD;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPLORC;;;BA)"
+$lockedSDDL   = $lockedSDDL = "D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)"
 $unlockedSDDL = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)"
 
 sc.exe sdset $svcName $unlockedSDDL | Out-Null
