@@ -1,5 +1,5 @@
 ﻿#requires -Version 5.1
-# v3: 10-second inventory, 30-second append-only output; no automatic remediation.
+# v4: 10-second inventory, 30-second persistent summaries; no automatic remediation.
 [CmdletBinding()]
 param(
     [string]$ProcessBaseline,
@@ -110,58 +110,141 @@ $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
 $processOutput = Join-Path $OutputDirectory 'unfamiliar-processes.csv'
 $serviceOutput = Join-Path $OutputDirectory 'unfamiliar-services.csv'
-$columns = @('ObservationId','RunId','PollId','ObservedUtc','Host','Name','Path','Reason',
-             'Instances','PIDs','CommandLines','ServiceState','ServiceAccount')
+
+$columns = @('Host','Name','Path','Reason','FirstSeenUtc','LastSeenUtc','TimesSeen',
+             'InstancesLastSeen','LastPIDs','LastCommandLines','ServiceState','ServiceAccount')
 $header = ($columns | ForEach-Object { '"' + $_ + '"' }) -join ','
+$legacyColumns = @('ObservationId','RunId','PollId','ObservedUtc','Host','Name','Path','Reason',
+                  'Instances','PIDs','CommandLines','ServiceState','ServiceAccount')
+$legacyHeader = ($legacyColumns | ForEach-Object { '"' + $_ + '"' }) -join ','
 $utf8 = [Text.UTF8Encoding]::new($true)
 $runId = [guid]::NewGuid().ToString('N')
-$processQueue = [Collections.Generic.List[object]]::new()
-$serviceQueue = [Collections.Generic.List[object]]::new()
-$clock = [Diagnostics.Stopwatch]::StartNew()
-$health = @{ Process='Not scanned'; Service='Not scanned'; Poll=0 }
-$lock = $null
-$ownsLock = $false
-
-function Initialize-Csv([string]$File) {
-    # CreateNew fails if another writer creates it first; existing data is never truncated.
-    if (-not [IO.File]::Exists($File)) {
-        $stream = [IO.File]::Open($File, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
-        $writer = [IO.StreamWriter]::new($stream, $utf8)
-        try { $writer.WriteLine($header) } finally { $writer.Dispose() }
-    } else {
-        $reader = [IO.StreamReader]::new($File, $true)
-        try { $actualHeader = $reader.ReadLine() } finally { $reader.Dispose() }
-        if ($actualHeader -cne $header) {
-            throw "Existing CSV has a different schema: $File. Preserved unchanged. Choose another -OutputDirectory."
-        }
+function New-SummaryState {
+    return @{
+        Rows=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+        Dirty=$false; LastWriteError=''
     }
 }
-function Append-Queue($Queue, [string]$File) {
-    if ($Queue.Count -eq 0) { return 0 }
-    # Retain queued rows on failure for retry. ObservationId allows deduplication
-    # if an interrupted partial append is retried.
-    $count = $Queue.Count
-    $lines = @($Queue.ToArray() | Select-Object -Property $columns | ConvertTo-Csv -NoTypeInformation)
-    $stream = [IO.File]::Open($File, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read)
-    $writer = [IO.StreamWriter]::new($stream, $utf8)
+$processState = New-SummaryState
+$serviceState = New-SummaryState
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$health = @{ Process='Not scanned'; Service='Not scanned'; Poll=0; Saved='Not yet';
+             ProcessError=''; ServiceError='' }
+$lock = $null
+$ownsLock = $false
+$ready = $false
+
+function Merge-Observation($State, $Observation, [switch]$Announce) {
+    $key = Get-Key $Observation.Name $Observation.Path
+    if (-not $State.Rows.ContainsKey($key)) {
+        $State.Rows[$key] = [pscustomobject][ordered]@{
+            Host=$Observation.Host; Name=$Observation.Name; Path=$Observation.Path; Reason=$Observation.Reason;
+            FirstSeenUtc=$Observation.ObservedUtc; LastSeenUtc=$Observation.ObservedUtc;
+            TimesSeen=[long]0; InstancesLastSeen=0; LastPIDs=''; LastCommandLines='';
+            ServiceState=''; ServiceAccount=''
+        }
+        if ($Announce) {
+            Write-Host ('[{0}] NEW {1}: {2} | {3}' -f (Get-Date -Format 'HH:mm:ss'),
+                $Observation.Reason, $Observation.Name, $Observation.Path) -ForegroundColor Yellow
+        }
+    }
+    $r = $State.Rows[$key]
+    $r.TimesSeen = [long]$r.TimesSeen + 1
+    if ([DateTimeOffset]::Parse($Observation.ObservedUtc) -lt [DateTimeOffset]::Parse($r.FirstSeenUtc)) {
+        $r.FirstSeenUtc = $Observation.ObservedUtc
+    }
+    if ([DateTimeOffset]::Parse($Observation.ObservedUtc) -ge [DateTimeOffset]::Parse($r.LastSeenUtc)) {
+        $r.LastSeenUtc=$Observation.ObservedUtc
+        $r.Reason=$Observation.Reason
+        $r.InstancesLastSeen=$Observation.Instances
+        $r.LastPIDs=$Observation.PIDs
+        $r.LastCommandLines=$Observation.CommandLines
+        $r.ServiceState=$Observation.ServiceState
+        $r.ServiceAccount=$Observation.ServiceAccount
+    }
+    $State.Dirty=$true
+}
+function Load-Summary($State, [string]$File) {
+    if (-not [IO.File]::Exists($File)) { $State.Dirty=$true; return }
+    $reader=[IO.StreamReader]::new($File,$true)
+    try { $existingHeader=$reader.ReadLine() } finally { $reader.Dispose() }
+    if ($existingHeader -ceq $header) {
+        foreach ($r in @(Import-Csv -LiteralPath $File -Encoding UTF8)) {
+            $key=Get-Key $r.Name $r.Path
+            if ($State.Rows.ContainsKey($key)) { throw "Duplicate summary key in $File; file preserved." }
+            $r.TimesSeen=[long]$r.TimesSeen
+            if ($r.TimesSeen -lt 1) { throw "Invalid TimesSeen in $File" }
+            [void][DateTimeOffset]::Parse($r.FirstSeenUtc)
+            [void][DateTimeOffset]::Parse($r.LastSeenUtc)
+            $State.Rows.Add($key,$r)
+        }
+    } elseif ($existingHeader -ceq $legacyHeader) {
+        # Count each v3 observation once; ignore repeats of identical ObservationId.
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        Import-Csv -LiteralPath $File -Encoding UTF8 | ForEach-Object {
+            if (-not $_.ObservationId) { throw "Missing v3 ObservationId in $File; file preserved." }
+            if ($seen.Add($_.ObservationId)) {
+                [void][DateTimeOffset]::Parse($_.ObservedUtc)
+                Merge-Observation $State $_
+            }
+        }
+        $archive=Join-Path $OutputDirectory 'v3-originals'
+        [void](New-Item -ItemType Directory -Path $archive -Force)
+        $backup=Join-Path $archive (([IO.Path]::GetFileNameWithoutExtension($File))+'-'+[guid]::NewGuid().ToString('N')+'.csv')
+        [IO.File]::Copy($File,$backup,$false)
+        $State.Dirty=$true
+        Write-Host "Consolidated v3 history: $File (original saved in v3-originals)."
+    } else {
+        throw "Unsupported results CSV header: $File. Existing data preserved."
+    }
+}
+function Save-Summary($State, [string]$File) {
+    if (-not $State.Dirty) { return }
+    $temp=$File+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
     try {
-        for ($i=1; $i -lt $lines.Count; $i++) { $writer.WriteLine($lines[$i]) }
-        $writer.Flush()
-    } finally { $writer.Dispose() }
-    $Queue.Clear()
-    return $count
+        if ($State.Rows.Count -gt 0) {
+            [string[]]$lines=@($State.Rows.Values | Sort-Object Name,Path |
+                Select-Object -Property $columns | ConvertTo-Csv -NoTypeInformation)
+        } else { [string[]]$lines=@($header) }
+        [IO.File]::WriteAllLines($temp,$lines,$utf8)
+        # Replace atomically; a locked destination remains intact. Never delete it first.
+        if ([IO.File]::Exists($File)) { [IO.File]::Replace($temp,$File,$null) }
+        else { [IO.File]::Move($temp,$File) }
+        $State.Dirty=$false
+    } finally {
+        if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
+    }
 }
 function Flush-Findings {
-    $p = '0'; $s = '0'
-    try { $p = [string](Append-Queue $processQueue $processOutput) }
-    catch { $p = 'FAILED'; Write-Warning ("Process CSV append failed; queued for retry: " + $_.Exception.Message) }
-    try { $s = [string](Append-Queue $serviceQueue $serviceOutput) }
-    catch { $s = 'FAILED'; Write-Warning ("Service CSV append failed; queued for retry: " + $_.Exception.Message) }
-    Write-Host ('[{0}] Poll {1}; processes={2}; services={3}; appended process rows={4}, service rows={5}; pending={6}' -f
-        (Get-Date -Format 'HH:mm:ss'), $health.Poll, $health.Process, $health.Service,
-        $p, $s, ($processQueue.Count + $serviceQueue.Count))
+    foreach ($entry in @(@{State=$processState;File=$processOutput},@{State=$serviceState;File=$serviceOutput})) {
+        $state=$entry.State
+        try {
+            Save-Summary $state $entry.File
+            if ($state.LastWriteError) {
+                Write-Host "CSV writes recovered: $($entry.File)"
+                $state.LastWriteError=''
+            }
+        } catch {
+            $message=$_.Exception.Message
+            if ($state.LastWriteError -ne $message) {
+                Write-Warning "CSV save failed; will retry with all pending counts. Close Excel if open. $($entry.File): $message"
+            }
+            $state.LastWriteError=$message
+        }
+    }
+    if (-not $processState.Dirty -and -not $serviceState.Dirty) { $health.Saved=Get-Date -Format 'HH:mm:ss' }
+    try {
+        $Host.UI.RawUI.WindowTitle=('BaselineWatch | poll {0} | P:{1} S:{2} | saved {3} | pending {4}' -f
+            $health.Poll,$health.Process,$health.Service,$health.Saved,($processState.Dirty -or $serviceState.Dirty))
+    } catch { } # Host title unavailable in some headless environments.
 }
-function Collect-Findings([string]$Kind, $Baseline, $Queue, [int]$PollId) {
+function Report-ScanFailure([string]$Kind, [string]$Message) {
+    $health[$Kind]='ERROR'
+    $field=$Kind+'Error'
+    if ($health[$field] -ne $Message) { Write-Warning "$Kind scan failed: $Message" }
+    $health[$field]=$Message
+}
+function Collect-Findings([string]$Kind, $Baseline, $State, [int]$PollId) {
     if ($Kind -eq 'Process') {
         $items = @(Get-CimInstance -ClassName Win32_Process -OperationTimeoutSec 10 -ErrorAction Stop)
     } else {
@@ -198,11 +281,10 @@ function Collect-Findings([string]$Kind, $Baseline, $Queue, [int]$PollId) {
             $r.ServiceAccount = [string]$item.StartName
         }
     }
-    foreach ($r in $groups.Values) {
-        $Queue.Add($r)
-        Write-Host ('[{0}] {1}: {2} | {3} | {4}' -f (Get-Date -Format 'HH:mm:ss'), $Kind, $r.Reason, $r.Name, $r.Path) -ForegroundColor Yellow
-    }
-    $health[$Kind] = "OK ($examined checked)"
+    foreach ($r in $groups.Values) { Merge-Observation $State $r -Announce }
+    $health[$Kind] = "OK ($examined)"
+    $health[$Kind+'Error']=''
+
 }
 try {
     # Same folder may be resumed, but never concurrently written by two instances.
@@ -213,10 +295,12 @@ try {
     try { $ownsLock = $lock.WaitOne(0) }
     catch [Threading.AbandonedMutexException] { $ownsLock = $true }
     if (-not $ownsLock) { throw 'A watcher is already writing to this output folder. Stop that instance first.' }
-    Initialize-Csv $processOutput
-    Initialize-Csv $serviceOutput
+    Load-Summary $processState $processOutput
+    Load-Summary $serviceState $serviceOutput
+    $ready = $true
+    Flush-Findings
     Write-Host "Output: $OutputDirectory"
-    Write-Host "Scan: $PollIntervalSeconds seconds; append: $WriteIntervalSeconds seconds. Existing CSV rows are preserved."
+    Write-Host "Scan: $PollIntervalSeconds seconds; save summaries: $WriteIntervalSeconds seconds. One row per name/path; counts survive restarts."
     if ($AllowBaselineMissingPaths) { Write-Warning 'Explicit baseline blank-path process entries match by name only.' }
     $nextPoll = 0.0
     $nextWrite = [double]$WriteIntervalSeconds
@@ -225,10 +309,10 @@ try {
         if ($now -ge $nextPoll) {
             $pollStarted = $now
             $health.Poll++
-            try { Collect-Findings 'Process' $processSet $processQueue $health.Poll }
-            catch { $health.Process = 'ERROR'; Write-Warning ("Process scan failed: " + $_.Exception.Message) }
-            try { Collect-Findings 'Service' $serviceSet $serviceQueue $health.Poll }
-            catch { $health.Service = 'ERROR'; Write-Warning ("Service scan failed: " + $_.Exception.Message) }
+            try { Collect-Findings 'Process' $processSet $processState $health.Poll }
+            catch { Report-ScanFailure 'Process' $_.Exception.Message }
+            try { Collect-Findings 'Service' $serviceSet $serviceState $health.Poll }
+            catch { Report-ScanFailure 'Service' $_.Exception.Message }
             # No overlapping scans or catch-up storm when CIM is slow.
             $nextPoll = [Math]::Max(($pollStarted + $PollIntervalSeconds), ($clock.Elapsed.TotalSeconds + 0.1))
         }
@@ -236,16 +320,13 @@ try {
             Flush-Findings
             $nextWrite = $clock.Elapsed.TotalSeconds + $WriteIntervalSeconds
         }
-        if (($processQueue.Count + $serviceQueue.Count) -gt 10000) {
-            throw 'Over 10,000 rows pending: output writes may be blocked. Stopping rather than silently discarding observations.'
-        }
         if (-not $Once) { Start-Sleep -Milliseconds 200 }
     } while (-not $Once)
 } finally {
     if ($ownsLock) {
-        # Best effort on graceful Ctrl+C; hard termination/power loss can lose unflushed rows.
+        # Best effort on graceful Ctrl+C; hard termination/power loss can lose unsaved counts.
         try {
-            if (($processQueue.Count + $serviceQueue.Count) -gt 0) { Flush-Findings }
+            if ($ready -and ($processState.Dirty -or $serviceState.Dirty)) { Flush-Findings }
         } finally { $lock.ReleaseMutex() }
     }
     if ($null -ne $lock) { $lock.Dispose() }
