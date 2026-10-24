@@ -1,5 +1,5 @@
 ﻿#requires -Version 5.1
-# v5: 10-second inventory, 30-second persistent summaries; no automatic remediation.
+# v5.1: 10-second inventory, 30-second persistent summaries; independent readable copies.
 [CmdletBinding()]
 param(
     [string]$ProcessBaseline,
@@ -356,6 +356,7 @@ try {
     Load-Summary $serviceState $serviceOutput
     $ready = $true
     Flush-Findings
+    Write-Host "Watch-Baseline v5.1 | fixed file replacement | independent readable copies"
     Write-Host "Readable copies: $OutputDirectory"
     Write-Host "Main CSVs (leave closed): $dataDirectory"
     Write-Host "Scan: $PollIntervalSeconds seconds; save summaries: $WriteIntervalSeconds seconds. One row per name/path; counts survive restarts."
