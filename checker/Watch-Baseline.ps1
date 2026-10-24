@@ -1,5 +1,5 @@
 ﻿#requires -Version 5.1
-# v4: 10-second inventory, 30-second persistent summaries; no automatic remediation.
+# v5: 10-second inventory, 30-second persistent summaries; no automatic remediation.
 [CmdletBinding()]
 param(
     [string]$ProcessBaseline,
@@ -108,8 +108,13 @@ if (-not $OutputDirectory) {
 }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
-$processOutput = Join-Path $OutputDirectory 'unfamiliar-processes.csv'
-$serviceOutput = Join-Path $OutputDirectory 'unfamiliar-services.csv'
+$dataDirectory = Join-Path $OutputDirectory '_data'
+[void](New-Item -ItemType Directory -Path $dataDirectory -Force)
+$processView = Join-Path $OutputDirectory 'unfamiliar-processes.csv'
+$serviceView = Join-Path $OutputDirectory 'unfamiliar-services.csv'
+$processOutput = Join-Path $dataDirectory 'unfamiliar-processes.csv'
+$serviceOutput = Join-Path $dataDirectory 'unfamiliar-services.csv'
+$viewStatus = @{ ProcessError=''; ServiceError=''; Pending=$false }
 
 $columns = @('Host','Name','Path','Reason','FirstSeenUtc','LastSeenUtc','TimesSeen',
              'InstancesLastSeen','LastPIDs','LastCommandLines','ServiceState','ServiceAccount')
@@ -207,10 +212,31 @@ function Save-Summary($State, [string]$File) {
                 Select-Object -Property $columns | ConvertTo-Csv -NoTypeInformation)
         } else { [string[]]$lines=@($header) }
         [IO.File]::WriteAllLines($temp,$lines,$utf8)
-        # Replace atomically; a locked destination remains intact. Never delete it first.
-        if ([IO.File]::Exists($File)) { [IO.File]::Replace($temp,$File,$null) }
-        else { [IO.File]::Move($temp,$File) }
+        # Windows PowerShell 5.1 may bind $null to an empty string here.
+        # Always supply a concrete backup pathname to File.Replace.
+        Install-PreparedFile $temp $File
         $State.Dirty=$false
+    } finally {
+        if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
+    }
+}
+
+function Install-PreparedFile([string]$Temp, [string]$Destination) {
+    if ([IO.File]::Exists($Destination)) {
+        $backup=$Temp+'.previous'
+        [IO.File]::Replace($Temp,$Destination,$backup)
+        # The new destination is committed. Backup cleanup failure is nonfatal.
+        try { if ([IO.File]::Exists($backup)) { [IO.File]::Delete($backup) } }
+        catch { Write-Warning "Saved successfully, but could not remove temporary backup: $backup" }
+    } else {
+        [IO.File]::Move($Temp,$Destination)
+    }
+}
+function Publish-View([string]$Source, [string]$Destination) {
+    $temp=$Destination+'.'+[guid]::NewGuid().ToString('N')+'.tmp'
+    try {
+        [IO.File]::Copy($Source,$temp,$false)
+        Install-PreparedFile $temp $Destination
     } finally {
         if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
     }
@@ -221,22 +247,45 @@ function Flush-Findings {
         try {
             Save-Summary $state $entry.File
             if ($state.LastWriteError) {
-                Write-Host "CSV writes recovered: $($entry.File)"
+                Write-Host "Main CSV writes recovered: $($entry.File)"
                 $state.LastWriteError=''
             }
         } catch {
             $message=$_.Exception.Message
             if ($state.LastWriteError -ne $message) {
-                Write-Warning "CSV save failed; will retry with all pending counts. Close Excel if open. $($entry.File): $message"
+                Write-Warning "MAIN CSV SAVE FAILED; counts retained in memory for retry. $($entry.File): $message"
             }
             $state.LastWriteError=$message
         }
     }
     if (-not $processState.Dirty -and -not $serviceState.Dirty) { $health.Saved=Get-Date -Format 'HH:mm:ss' }
+    $viewStatus.Pending=$false
+    foreach ($entry in @(@{Source=$processOutput;Destination=$processView;Field='ProcessError';State=$processState},
+                        @{Source=$serviceOutput;Destination=$serviceView;Field='ServiceError';State=$serviceState})) {
+        try {
+            if ($entry.State.Dirty) {
+                $viewStatus.Pending=$true
+                continue
+            }
+            Publish-View $entry.Source $entry.Destination
+            if ($viewStatus[$entry.Field]) {
+                Write-Host "Readable copy refreshed: $($entry.Destination)"
+                $viewStatus[$entry.Field]=''
+            }
+        } catch {
+            $viewStatus.Pending=$true
+            $message=$_.Exception.Message
+            if ($viewStatus[$entry.Field] -ne $message) {
+                Write-Warning "Main CSV is saved in _data. Readable copy refresh failed; retrying every write cycle. $($entry.Destination): $message"
+            }
+            $viewStatus[$entry.Field]=$message
+        }
+    }
     try {
-        $Host.UI.RawUI.WindowTitle=('BaselineWatch | poll {0} | P:{1} S:{2} | saved {3} | pending {4}' -f
-            $health.Poll,$health.Process,$health.Service,$health.Saved,($processState.Dirty -or $serviceState.Dirty))
-    } catch { } # Host title unavailable in some headless environments.
+        $Host.UI.RawUI.WindowTitle=('BaselineWatch | poll {0} | P:{1} S:{2} | main saved {3} | data pending {4} | view pending {5}' -f
+            $health.Poll,$health.Process,$health.Service,$health.Saved,
+            ($processState.Dirty -or $serviceState.Dirty),$viewStatus.Pending)
+    } catch { }
 }
 function Report-ScanFailure([string]$Kind, [string]$Message) {
     $health[$Kind]='ERROR'
@@ -295,11 +344,20 @@ try {
     try { $ownsLock = $lock.WaitOne(0) }
     catch [Threading.AbandonedMutexException] { $ownsLock = $true }
     if (-not $ownsLock) { throw 'A watcher is already writing to this output folder. Stop that instance first.' }
+    # On first upgrade only, import existing root findings. Once _data exists,
+    # it is authoritative; never import later edits made to the readable copies.
+    foreach ($entry in @(@{Source=$processView;Destination=$processOutput},
+                        @{Source=$serviceView;Destination=$serviceOutput})) {
+        if ((-not [IO.File]::Exists($entry.Destination)) -and [IO.File]::Exists($entry.Source)) {
+            [IO.File]::Copy($entry.Source,$entry.Destination,$false)
+        }
+    }
     Load-Summary $processState $processOutput
     Load-Summary $serviceState $serviceOutput
     $ready = $true
     Flush-Findings
-    Write-Host "Output: $OutputDirectory"
+    Write-Host "Readable copies: $OutputDirectory"
+    Write-Host "Main CSVs (leave closed): $dataDirectory"
     Write-Host "Scan: $PollIntervalSeconds seconds; save summaries: $WriteIntervalSeconds seconds. One row per name/path; counts survive restarts."
     if ($AllowBaselineMissingPaths) { Write-Warning 'Explicit baseline blank-path process entries match by name only.' }
     $nextPoll = 0.0
