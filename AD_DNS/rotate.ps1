@@ -1,15 +1,13 @@
 
 # CDT Active Directory Password Rotator
-# Domain: krusty.krab
-# Domain Controller: treedome.krusty.krab
+# Run on treedome with sufficient AD permissions.
 
 $ErrorActionPreference = "Stop"
 
-# Define the domain controller and expected domain.
 $DC = "treedome.krusty.krab"
 $Domain = "krusty.krab"
 
-# These accounts are designated as administrators in the CDT account list.
+# Approved administrative accounts.
 $AdminAccounts = @(
     "mrkrabs",
     "spongebob",
@@ -18,7 +16,7 @@ $AdminAccounts = @(
     "sandy"
 )
 
-# These are the five designated non-admin accounts.
+# Approved non-administrative accounts.
 $NonAdminAccounts = @(
     "gary",
     "puff",
@@ -27,69 +25,63 @@ $NonAdminAccounts = @(
     "barnacleboy"
 )
 
-# Only accounts in this list can be selected for rotation.
+# Only these accounts can be rotated.
 $AllowedAccounts = @($AdminAccounts) + @($NonAdminAccounts)
 
 
-# Compare two SecureString passwords.
+# Compare two manually entered passwords.
 function Test-PasswordsMatch {
     param(
         [SecureString]$First,
         [SecureString]$Second
     )
 
-    # Avoid converting the passwords when their lengths differ.
     if ($First.Length -ne $Second.Length) {
         return $false
     }
 
-    # Convert temporarily to plaintext strings for comparison.
-    # These values are never printed or written to files.
-    $Password1 = [PSCredential]::new("temp", $First).
+    # Convert temporarily for a case-sensitive comparison.
+    $p1 = [PSCredential]::new("temp", $First).
         GetNetworkCredential().Password
 
-    $Password2 = [PSCredential]::new("temp", $Second).
+    $p2 = [PSCredential]::new("temp", $Second).
         GetNetworkCredential().Password
 
-    # Use case-sensitive comparison.
-    return ($Password1 -ceq $Password2)
+    return ($p1 -ceq $p2)
 }
 
 
-# Prompt for a new password until both entries match.
+# Require the operator to enter the password twice.
 function Get-ConfirmedPassword {
-    param([string]$Username)
+    param([string]$Label)
 
     while ($true) {
 
         Write-Host ""
-        Write-Host "Setting password for: $Username"
+        Write-Host "Password for: $Label"
 
-        # Read both entries without displaying their contents.
+        # Both prompts hide the actual password.
         $First = Read-Host "Enter new password" -AsSecureString
         $Second = Read-Host "Confirm new password" -AsSecureString
 
-        # Only proceed when both entries match.
-        if (Test-PasswordsMatch -First $First -Second $Second) {
+        if (Test-PasswordsMatch $First $Second) {
+
+            Write-Host "[+] Password confirmed." -ForegroundColor Green
 
             $Second.Dispose()
-
-            Write-Host "[+] Passwords match." -ForegroundColor Green
-
-            # Return the password as a SecureString.
             return $First
         }
 
+        # Retry without imposing a maximum attempt count.
         Write-Warning "Passwords do not match. Try again."
 
-        # Discard the rejected entries before repeating.
         $First.Dispose()
         $Second.Dispose()
     }
 }
 
 
-# Load the Active Directory module and verify the domain.
+# Load Active Directory and confirm the domain.
 try {
     Import-Module ActiveDirectory -ErrorAction Stop
 
@@ -99,24 +91,22 @@ try {
         -ErrorAction Stop
 
     if ($ADDomain.DNSRoot -ine $Domain) {
-        throw "Connected to the wrong domain."
+        throw "Unexpected Active Directory domain."
     }
 
     Write-Host "[+] Connected to $Domain" -ForegroundColor Green
 }
 catch {
-    Write-Host "[ERROR] Active Directory connection failed." `
-        -ForegroundColor Red
-
+    Write-Host "[ERROR] AD connection failed." -ForegroundColor Red
     Write-Host $_.Exception.Message
     return
 }
 
 
-# Display the interactive menu.
+# Show the account-selection menu.
 Write-Host ""
 Write-Host "========================================"
-Write-Host "        CDT PASSWORD ROTATOR"
+Write-Host "          CDT PASSWORD ROTATOR"
 Write-Host "========================================"
 Write-Host ""
 Write-Host "[1] Rotate ONE account"
@@ -132,126 +122,95 @@ $Targets = @()
 switch ($Choice) {
 
     "1" {
-        # Display approved accounts before asking for one username.
-        Write-Host ""
-        Write-Host "Available accounts:"
-        $AllowedAccounts | ForEach-Object {
-            Write-Host " - $_"
-        }
+        Write-Host "Available: $($AllowedAccounts -join ', ')"
 
         $Name = (Read-Host "Enter username").Trim().ToLower()
         $Targets = @($Name)
     }
 
     "2" {
-        # Display the complete list and an input example.
+        Write-Host "Available: $($AllowedAccounts -join ', ')"
         Write-Host ""
-        Write-Host "Available accounts:"
-        $AllowedAccounts | ForEach-Object {
-            Write-Host " - $_"
-        }
-
-        Write-Host ""
-        Write-Host "Enter usernames separated by COMMAS."
+        Write-Host "Separate usernames with commas."
         Write-Host "Example: gary,puff,larry"
 
         $InputNames = Read-Host "Enter usernames"
 
-        # Split the input and remove extra spaces.
+        # Split and normalize the selected usernames.
         $Targets = @(
             $InputNames.Split(",") |
                 ForEach-Object { $_.Trim().ToLower() } |
                 Where-Object { $_ -ne "" }
         )
 
-        # Prevent the same account from being rotated twice.
-        $UniqueTargets = @($Targets | Select-Object -Unique)
-
-        if ($UniqueTargets.Count -ne $Targets.Count) {
-            Write-Host "[ERROR] Duplicate usernames entered." `
-                -ForegroundColor Red
+        # Reject duplicates instead of resetting twice.
+        if (@($Targets | Select-Object -Unique).Count -ne $Targets.Count) {
+            Write-Host "[ERROR] Duplicate usernames."
             return
         }
     }
 
     "3" {
-        # Select all ten approved accounts.
         $Targets = @($AllowedAccounts)
     }
 
     "4" {
-        # Select only the five non-admin accounts.
         $Targets = @($NonAdminAccounts)
     }
 
     "5" {
-        Write-Host "Exiting."
         return
     }
 
     default {
-        Write-Host "[ERROR] Invalid menu selection." `
-            -ForegroundColor Red
+        Write-Host "[ERROR] Invalid option."
         return
     }
 }
 
 
-# Reject empty selections.
+# Refuse empty selections.
 if ($Targets.Count -eq 0) {
-    Write-Host "[ERROR] No accounts selected." -ForegroundColor Red
+    Write-Host "[ERROR] No accounts selected."
     return
 }
 
-# Check that every selected username belongs to our allowlist.
-$InvalidAccounts = @(
-    $Targets | Where-Object {
-        $_ -notin $AllowedAccounts
-    }
+# Restrict rotation to the approved account list.
+$Invalid = @(
+    $Targets | Where-Object { $_ -notin $AllowedAccounts }
 )
 
-if ($InvalidAccounts.Count -gt 0) {
-    Write-Host "[ERROR] Unapproved account(s):" `
-        -ForegroundColor Red
-
-    $InvalidAccounts | ForEach-Object {
-        Write-Host " - $_"
-    }
-
-    Write-Host "No passwords changed."
+if ($Invalid.Count -gt 0) {
+    Write-Host "[ERROR] Unapproved accounts: $($Invalid -join ', ')"
     return
 }
 
 
-# Identify the current Windows account.
-# If selected, this account will be moved to the end.
+# Determine which Windows identity is running PowerShell.
 $CurrentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $CurrentUsername = ($CurrentIdentity -split '\\')[-1]
 
-# Verify every selected account before changing any passwords.
 $Validated = @()
 
+# Verify every selected account before resetting anything.
 foreach ($Username in $Targets) {
 
     try {
-        # Confirm the account exists on the expected domain controller.
         $User = Get-ADUser `
             -Identity $Username `
             -Server $DC `
             -Properties Enabled,ServicePrincipalName `
             -ErrorAction Stop
 
-        # Avoid changing disabled accounts.
         if (-not $User.Enabled) {
-            throw "Account $Username is disabled."
+            throw "$Username is disabled."
         }
 
-        # Service-linked accounts may have dependent applications.
+        # Avoid unexpected disruption of service identities.
         if ($User.ServicePrincipalName) {
-            throw "Account $Username has a service principal name."
+            throw "$Username has a service principal name."
         }
 
-        # Label the account using our designated CDT account lists.
         $Role = if ($Username -in $AdminAccounts) {
             "Listed Admin"
         }
@@ -259,7 +218,6 @@ foreach ($Username in $Targets) {
             "Non-Admin"
         }
 
-        # Save only the validated account metadata.
         $Validated += [PSCustomObject]@{
             Username = $Username
             Role = $Role
@@ -267,17 +225,15 @@ foreach ($Username in $Targets) {
         }
     }
     catch {
-        Write-Host "[ERROR] Validation failed for $Username" `
+        Write-Host "[ERROR] Account validation failed: $Username" `
             -ForegroundColor Red
-
         Write-Host $_.Exception.Message
-        Write-Host "No passwords have been changed."
         return
     }
 }
 
 
-# Move the current Windows account to the end of the rotation list.
+# Move the current account to the end of the rotation.
 $ActiveAccount = @(
     $Validated | Where-Object {
         $_.Username -ieq $CurrentUsername
@@ -286,50 +242,41 @@ $ActiveAccount = @(
 
 if ($ActiveAccount.Count -gt 0) {
 
-    # Preserve the order of the other selected accounts.
     $OtherAccounts = @(
         $Validated | Where-Object {
             $_.Username -ine $CurrentUsername
         }
     )
 
-    # Append the logged-in account after all other accounts.
     $Validated = @($OtherAccounts) + @($ActiveAccount)
-
-    Write-Host ""
-    Write-Warning "Current logged-in account: $CurrentUsername"
-    Write-Host "This account will be rotated LAST." `
-        -ForegroundColor Yellow
 }
 
 
-# Show every account before making any changes.
+# Display the confirmed execution order.
 Write-Host ""
 Write-Host "========================================"
-Write-Host "        ROTATION CONFIRMATION"
+Write-Host "          ROTATION PREVIEW"
 Write-Host "========================================"
 
 $Validated |
     Select-Object Username,Role |
     Format-Table -AutoSize
 
-Write-Host "Total accounts: $($Validated.Count)"
+Write-Host "Selected: $($Validated.Count)"
 Write-Host "Domain: $Domain"
-Write-Host "No accounts will be disabled or deleted."
-Write-Host "No passwords will be saved to disk."
+Write-Host "Passwords will not be written to files."
 Write-Host ""
 
-# Require the operator to confirm the exact batch size.
 $Expected = "ROTATE $($Validated.Count)"
 $Confirmation = Read-Host "Type '$Expected' to continue"
 
 if ($Confirmation -cne $Expected) {
-    Write-Host "Rotation cancelled."
+    Write-Host "Cancelled."
     return
 }
 
 
-# Require additional confirmation when admin accounts are selected.
+# Require additional confirmation for designated admins.
 $SelectedAdmins = @(
     $Validated | Where-Object {
         $_.Username -in $AdminAccounts
@@ -338,7 +285,6 @@ $SelectedAdmins = @(
 
 if ($SelectedAdmins.Count -gt 0) {
 
-    Write-Host ""
     Write-Warning "Administrative accounts are included!"
 
     $SelectedAdmins | ForEach-Object {
@@ -348,117 +294,184 @@ if ($SelectedAdmins.Count -gt 0) {
     $AdminConfirmation = Read-Host "Type ADMINS to continue"
 
     if ($AdminConfirmation -cne "ADMINS") {
-        Write-Host "Rotation cancelled."
+        Write-Host "Cancelled."
         return
     }
 }
 
 
-# Rotate the accounts one at a time.
-$Results = @()
+# Warn before resetting the account running the script.
+if ($ActiveAccount.Count -gt 0) {
 
-foreach ($Account in $Validated) {
+    Write-Warning "Your current login account will rotate LAST."
+    Write-Host "Future logins require the new password."
 
-    $Username = $Account.Username
-    $NewPassword = $null
+    $CurrentConfirmation = Read-Host "Type CURRENT to continue"
 
-    Write-Host ""
-    Write-Host "Rotating password for: $Username"
-
-    # An active-session reset requires another confirmation.
-    if ($Username -ieq $CurrentUsername) {
-
-        Write-Warning "You are changing your current login password."
-        Write-Host "Your existing session may continue running."
-        Write-Host "Future logins will require the new password."
-
-        $ActiveConfirmation = Read-Host "Type CURRENT to continue"
-
-        if ($ActiveConfirmation -cne "CURRENT") {
-
-            # Cancellation is not an AD failure.
-            $Results += [PSCustomObject]@{
-                Username = $Username
-                Status = "CANCELLED - NOT CHANGED"
-            }
-
-            Write-Host "Current account rotation cancelled."
-            break
-        }
-    }
-
-    try {
-        # Ask for the password twice and verify both entries match.
-        $NewPassword = Get-ConfirmedPassword -Username $Username
-
-        # Active Directory enforces its applicable password policy.
-        # A reset requires sufficient permissions for this account.
-        Set-ADAccountPassword `
-            -Identity $Account.DN `
-            -Server $DC `
-            -Reset `
-            -NewPassword $NewPassword `
-            -Confirm:$false `
-            -ErrorAction Stop
-
-        Write-Host "[SUCCESS] Password changed for $Username" `
-            -ForegroundColor Green
-
-        # Record the outcome without recording the actual password.
-        $Results += [PSCustomObject]@{
-            Username = $Username
-            Status = "SUCCESS"
-        }
-    }
-    catch {
-        Write-Host "[ERROR] Password reset failed: $Username" `
-            -ForegroundColor Red
-
-        Write-Host $_.Exception.Message
-
-        # A timeout could mean AD processed the reset
-        # even though the script did not receive a response.
-        $Results += [PSCustomObject]@{
-            Username = $Username
-            Status = "FAILED OR UNCERTAIN"
-        }
-
-        # Stop the batch to avoid unexpected partial results.
-        Write-Warning "Stopping remaining rotations."
-        break
-    }
-    finally {
-        # Release the SecureString after its reset attempt.
-        if ($null -ne $NewPassword) {
-            $NewPassword.Dispose()
-        }
+    if ($CurrentConfirmation -cne "CURRENT") {
+        Write-Host "Cancelled."
+        return
     }
 }
 
 
-# Summarize the outcome of each attempted account.
+# Let the operator choose how passwords are assigned.
 Write-Host ""
 Write-Host "========================================"
-Write-Host "           ROTATION SUMMARY"
+Write-Host "           PASSWORD MODE"
+Write-Host "========================================"
+Write-Host ""
+Write-Host "[1] BULK - One password for all selected accounts"
+Write-Host "[2] INDIVIDUAL - Different password per account"
+Write-Host "[3] Cancel"
+Write-Host ""
+
+$Mode = Read-Host "Choose password mode"
+
+if ($Mode -notin @("1", "2")) {
+    Write-Host "Cancelled."
+    return
+}
+
+# A shared password is a risk because compromising
+# one account could compromise the other accounts.
+if ($Mode -eq "1" -and $Validated.Count -gt 1) {
+
+    Write-Warning "All selected accounts will share one password."
+
+    $SharedConfirm = Read-Host "Type SHARED to accept this risk"
+
+    if ($SharedConfirm -cne "SHARED") {
+        Write-Host "Cancelled."
+        return
+    }
+}
+
+
+# Store the passwords temporarily in process memory.
+# This is NOT a CSV or persistent password file.
+$PasswordAssignments = @()
+$SharedPassword = $null
+$Results = @()
+
+try {
+
+    # First collect all required passwords.
+    # No Active Directory changes occur during this phase.
+    if ($Mode -eq "1") {
+
+        Write-Host ""
+        Write-Host "Enter ONE password for all selected accounts."
+
+        $SharedPassword = Get-ConfirmedPassword `
+            -Label "ALL SELECTED ACCOUNTS"
+
+        foreach ($Account in $Validated) {
+
+            $PasswordAssignments += [PSCustomObject]@{
+                Account = $Account
+                Password = $SharedPassword
+            }
+        }
+    }
+    else {
+
+        # Ask for each password before performing any reset.
+        foreach ($Account in $Validated) {
+
+            $Password = Get-ConfirmedPassword `
+                -Label $Account.Username
+
+            $PasswordAssignments += [PSCustomObject]@{
+                Account = $Account
+                Password = $Password
+            }
+        }
+    }
+
+
+    # All passwords have been collected.
+    # Start the rotation without further prompts.
+    Write-Host ""
+    Write-Host "========================================"
+    Write-Host "           ROTATING ACCOUNTS"
+    Write-Host "========================================"
+
+    foreach ($Assignment in $PasswordAssignments) {
+
+        $Username = $Assignment.Account.Username
+
+        try {
+
+            # Submit the selected password directly to AD.
+            # Active Directory enforces its password policy.
+            Set-ADAccountPassword `
+                -Identity $Assignment.Account.DN `
+                -Server $DC `
+                -Reset `
+                -NewPassword $Assignment.Password `
+                -Confirm:$false `
+                -ErrorAction Stop
+
+            Write-Host "[SUCCESS] $Username" -ForegroundColor Green
+
+            $Results += [PSCustomObject]@{
+                Username = $Username
+                Status = "SUCCESS"
+            }
+        }
+        catch {
+
+            # A connection interruption may leave the
+            # result uncertain even if AD accepted the reset.
+            Write-Host "[ERROR] $Username" -ForegroundColor Red
+            Write-Host $_.Exception.Message
+
+            $Results += [PSCustomObject]@{
+                Username = $Username
+                Status = "FAILED OR UNCERTAIN"
+            }
+
+            # Stop instead of blindly continuing the batch.
+            Write-Warning "Stopping remaining rotations."
+            break
+        }
+    }
+}
+finally {
+
+    # Discard password objects after the batch finishes.
+    # Shared mode uses the same object for all accounts,
+    # so dispose of it only once.
+    if ($null -ne $SharedPassword) {
+        $SharedPassword.Dispose()
+    }
+    else {
+        foreach ($Assignment in $PasswordAssignments) {
+            if ($null -ne $Assignment.Password) {
+                $Assignment.Password.Dispose()
+            }
+        }
+    }
+
+    $PasswordAssignments = @()
+}
+
+
+# Display the results without displaying passwords.
+Write-Host ""
+Write-Host "========================================"
+Write-Host "            ROTATION SUMMARY"
 Write-Host "========================================"
 
 $Results | Format-Table -AutoSize
 
 $SuccessCount = @(
-    $Results | Where-Object {
-        $_.Status -eq "SUCCESS"
-    }
-).Count
-
-$CancelledCount = @(
-    $Results | Where-Object {
-        $_.Status -like "CANCELLED*"
-    }
+    $Results | Where-Object { $_.Status -eq "SUCCESS" }
 ).Count
 
 Write-Host "Successful: $SuccessCount"
-Write-Host "Cancelled: $CancelledCount"
-Write-Host "Attempted/processed: $($Results.Count)"
+Write-Host "Processed: $($Results.Count)"
 Write-Host "Selected: $($Validated.Count)"
 
 if ($Results.Count -lt $Validated.Count) {
@@ -467,4 +480,4 @@ if ($Results.Count -lt $Validated.Count) {
 
 Write-Host ""
 Write-Host "Verify authentication using the new passwords."
-Write-Host "Rotation process finished."
+Write-Host "Done."
