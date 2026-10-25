@@ -13,31 +13,23 @@ These scripts enable PowerShell session logging and format the collected logs in
 
 Open PowerShell as Administrator and run:
 
-```powershell
 .\logging.ps1
-```
 
 This enables automatic logging for new PowerShell sessions.
 
 Logs are saved to:
-```text
 C:\Users\Public\Desktop\PowerShellLogs
-```
 
 ### 2. Format Logs
 
 After generating PowerShell activity, run:
 
-```powershell
 .\formatting.ps1
-```
 
 This organizes the collected transcripts by session start time and creates readable, numbered files.
 
 Formatted logs are saved to:
-```text
 C:\Users\Public\Desktop\PowerShellLogs\Formatted
-```
 
 ## Notes
 
