@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)][ValidateSet("AD","DNS","Openfire","Telnet","IIS","CA")][string]$Service
 )
 
-$map = @{ "AD"="NTDS"; "DNS"="DNS"; "Openfire"="openfire"; "Telnet"="TlntSvr"; "IIS"="W3SVC"; "CA"="CertSvc" }
+$map = @{ "AD"="NTDS"; "DNS"="DNS"; "Openfire"="openfire"; "Telnet"="inetd"; "IIS"="W3SVC"; "CA"="CertSvc" }
 $svcName = $map[$Service]
 
 $fixedSDDL = "D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)"
