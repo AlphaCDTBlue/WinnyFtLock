@@ -2,31 +2,31 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Blue-team threat removal tool: take ownership (ICACLS) -> stop related
-    processes -> quarantine or delete a malicious EXE/DLL.
- 
+    Blue-team threat removal tool (GUI): take ownership (ICACLS) -> stop related
+    processes -> quarantine or delete a malicious file.
+    Merged version: Get-ThreatPath.bat is no longer needed.
+
 .DESCRIPTION
-    Run locally on each host (Windows Server 2019, PowerShell 5.1).
-    Flow per file:
-      1. Report (hash, signature, owner, size) and safety checks
-      2. Take ownership with icacls (original ACL is saved first)
-      3. Find processes running/loading the file; optionally stop them
-      4. Quarantine (recommended, reversible) or delete (permanent)
-      5. Report persistence that still references the file (read-only)
- 
-    It never touches firewall, network, RDP, accounts, or reboots the host,
-    so it will not interfere with the grey team scoring checks by itself.
-    It does guard against stopping processes that host services or listen
-    on ports (likely scored) without an explicit typed YES.
- 
+    Run locally on each host (Windows Server 2019, PowerShell 5.1, Desktop Experience).
+    Flow per file (Windows Forms dialogs):
+      1. Path box          : type/paste the exact full path (with file name) or Browse
+      2. Details box       : hash, signature, owner, size, processes using it,
+                             persistence references + [Quarantine] [Delete] [Both] [Cancel]
+      3. Ownership         : icacls (original ACL is saved first)
+      4. Process confirm   : Yes/No, plus typed YES for services / listening processes
+      5. Quarantine/delete : reversible quarantine, permanent delete, or evidence copy + delete
+      6. Result box        : SUCCESS / PARTIAL / FAILED, steps taken, log location
+
+    It never touches firewall, network, RDP, accounts, or reboots the host.
+    It guards against stopping processes that host services or listen on ports
+    (likely scored) without an explicit typed YES.
+
 .PARAMETER Path
-    One or more file paths (wildcards allowed). If omitted, Get-ThreatPath.bat
-    (must sit next to this script) makes the operator type the exact full path
-    including the file name, e.g. C:\Windows\System32\getridofme.txt
+    One or more file paths (wildcards allowed). If omitted, the path box is shown.
 .PARAMETER Action
     Prompt (default) | Quarantine | Delete | Both
-    Both = keep a hash-verified evidence copy in quarantine, then delete the original.
-    Any value other than Prompt skips the confirmation menu.
+    Both = keep an evidence copy in quarantine, then delete the original.
+    Any value other than Prompt skips the action buttons.
 .PARAMETER StopProcesses
     Prompt (default) | Yes | No
 .PARAMETER DryRun
@@ -34,17 +34,16 @@
 .PARAMETER Force
     Skip the protected-file refusal and the typed-YES gate. Use sparingly.
 .PARAMETER Restore
-    Restore a quarantined file by its ID.
+    Restore a quarantined file by its ID (a confirmation box is shown).
 .PARAMETER ListQuarantine
-    List quarantined items.
- 
+    Open the quarantine manager window (list + Restore button).
+
+.EXAMPLE
+    .\Remove-Threat.ps1
 .EXAMPLE
     .\Remove-Threat.ps1 -Path C:\Users\Public\update.exe -DryRun
 .EXAMPLE
-    .\Remove-Threat.ps1 -Path C:\Windows\Temp\*.dll -Action Quarantine
-.EXAMPLE
     .\Remove-Threat.ps1 -ListQuarantine
-    .\Remove-Threat.ps1 -Restore 3f2a9c...
 #>
 [CmdletBinding()]
 param(
@@ -56,65 +55,78 @@ param(
     [string]$Restore,
     [switch]$ListQuarantine
 )
- 
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
 # ----------------------------------------------------------------------------
 # CONFIG - edit for your environment
 # ----------------------------------------------------------------------------
 $QuarantineDir = Join-Path $env:ProgramData 'BT_Quarantine'
 $LogFile       = Join-Path $QuarantineDir 'threat-removal.log'
+$FallbackLog   = Join-Path $env:TEMP 'threat-removal.fallback.log'   # used if the main log can't be written
 $AdminSid      = '*S-1-5-32-544'   # BUILTIN\Administrators (locale-safe)
 $SystemSid     = '*S-1-5-18'       # NT AUTHORITY\SYSTEM
- 
+
 # Processes this tool will never stop
 $CriticalProcs = @('System', 'Idle', 'Registry', 'Memory Compression', 'smss', 'csrss',
                    'wininit', 'winlogon', 'services', 'lsass', 'lsaiso', 'dwm', 'fontdrvhost')
- 
+
 # Paths refused unless -Force (add your scored-service directories here)
 $ProtectedPathPatterns = @(
     "$env:SystemRoot\NTDS*",
     "$env:SystemRoot\SYSVOL*",
+    "$env:SystemRoot\System32\dns*",                    # DNS server role (added for AD/DNS box)
     "$env:SystemRoot\WinSxS*",
     "$env:SystemRoot\servicing*",
-    "$env:ProgramFiles\Cloudbase Solutions*",          # OpenStack cloudbase-init
+    "$env:ProgramFiles\Cloudbase Solutions*",           # OpenStack cloudbase-init
     "${env:ProgramFiles(x86)}\Cloudbase Solutions*",
     "$QuarantineDir*"
     # 'C:\inetpub\wwwroot\*'   # example: scored web content
 )
- 
+
 # ----------------------------------------------------------------------------
 # HELPERS
 # ----------------------------------------------------------------------------
+$script:LogFailed = $false
+$script:Trail     = New-Object System.Collections.ArrayList   # log lines for the current file (shown in result box)
+
 function Initialize-Store {
     if (-not (Test-Path -LiteralPath $QuarantineDir)) {
         New-Item -ItemType Directory -Path $QuarantineDir -Force | Out-Null
         & icacls.exe $QuarantineDir /inheritance:r /grant:r "${SystemSid}:(OI)(CI)F" "${AdminSid}:(OI)(CI)F" 2>&1 | Out-Null
     }
 }
- 
+
 function Write-Log {
     param([string]$Msg, [ValidateSet('INFO', 'WARN', 'ERROR', 'OK')][string]$Level = 'INFO')
     $line = '{0:u} [{1}] [{2}\{3}] {4}' -f (Get-Date), $Level, $env:USERDOMAIN, $env:USERNAME, $Msg
-    try { Add-Content -LiteralPath $LogFile -Value $line -ErrorAction Stop } catch {}
+    try { Add-Content -LiteralPath $LogFile -Value $line -ErrorAction Stop }
+    catch {
+        $script:LogFailed = $true
+        try { Add-Content -LiteralPath $FallbackLog -Value $line -ErrorAction Stop } catch {}
+    }
+    [void]$script:Trail.Add("[$Level] $Msg")
     $color = switch ($Level) { 'WARN' { 'Yellow' } 'ERROR' { 'Red' } 'OK' { 'Green' } default { 'Gray' } }
     Write-Host "[$Level] $Msg" -ForegroundColor $color
 }
- 
-function Read-Choice {
-    param([string]$Prompt, [string[]]$Valid, [string]$Default)
-    while ($true) {
-        $r = Read-Host $Prompt
-        if ([string]::IsNullOrWhiteSpace($r) -and $Default) { return $Default }
-        if ($r -and ($Valid -contains $r.Trim().ToUpper())) { return $r.Trim().ToUpper() }
-        Write-Host "  Enter one of: $($Valid -join ', ')" -ForegroundColor Yellow
-    }
+
+function Notify([string]$Text, [string]$Title = 'Threat Remover', $Icon = 'Information') {
+    [void][System.Windows.Forms.MessageBox]::Show($Text, $Title, 'OK', $Icon)
 }
- 
+
+function Ask-Yes([string]$Text, [string]$Title = 'Threat Remover', $Icon = 'Warning') {
+    # Default button is No.
+    ([System.Windows.Forms.MessageBox]::Show($Text, $Title, 'YesNo', $Icon, 'Button2') -eq 'Yes')
+}
+
 function Invoke-Icacls {
     param([string[]]$IcaclsArgs)
     $out = & icacls.exe @IcaclsArgs 2>&1
     if ($LASTEXITCODE -ne 0) { throw "icacls $($IcaclsArgs -join ' ') failed: $($out -join ' ')" }
 }
- 
+
 function Get-FileReport {
     param([string]$Full)
     $r = [ordered]@{ Path = $Full; Size = $null; SHA256 = 'unavailable'; Signature = 'unknown'; Signer = ''; Owner = 'unknown' }
@@ -128,7 +140,7 @@ function Get-FileReport {
     try { $r.Owner = (Get-Acl -LiteralPath $Full).Owner } catch {}
     [pscustomobject]$r
 }
- 
+
 function Test-Protected {
     param([string]$Full, $Report)
     foreach ($pat in $ProtectedPathPatterns) {
@@ -139,7 +151,7 @@ function Test-Protected {
     }
     return $null
 }
- 
+
 function Get-RelatedProcesses {
     param([string]$Full)
     $found = @{}
@@ -159,12 +171,12 @@ function Get-RelatedProcesses {
             }
         } catch {}   # access denied / 32-64 bit mismatch: skip
     }
- 
+
     $svcAll = @()
     try { $svcAll = @(Get-CimInstance Win32_Service -ErrorAction Stop) } catch {}
     $listen = @()
     try { $listen = @(Get-NetTCPConnection -State Listen -ErrorAction Stop) } catch {}
- 
+
     foreach ($id in $found.Keys) {
         $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
         if (-not $proc) { continue }
@@ -180,12 +192,12 @@ function Get-RelatedProcesses {
         }
     }
 }
- 
+
 function Get-PersistenceRefs {
     param([string]$Full)
     $hits = New-Object System.Collections.Generic.List[string]
     $has = { param($s) $s -and ([Environment]::ExpandEnvironmentVariables([string]$s)).IndexOf($Full, [StringComparison]::OrdinalIgnoreCase) -ge 0 }
- 
+
     try {
         Get-CimInstance Win32_Service -ErrorAction Stop | Where-Object { & $has $_.PathName } |
             ForEach-Object { $hits.Add("Service: $($_.Name)  ($($_.PathName))") }
@@ -215,17 +227,172 @@ function Get-PersistenceRefs {
     }
     $hits
 }
- 
+
+# ----------------------------------------------------------------------------
+# DIALOGS
+# ----------------------------------------------------------------------------
+
+# Replaces Get-ThreatPath.bat. Same rules: exact FULL path incl. file name,
+# quotes tolerated, must start with X:\ or \\, must not end in a backslash.
+function Resolve-TargetInput {
+    param([string]$Raw)
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return @{ Path = $null; Error = 'Enter a path first (or press Cancel).' } }
+    $p = [Environment]::ExpandEnvironmentVariables($Raw.Trim().Trim('"').Trim())
+    if ($p -notmatch '^([A-Za-z]:\\|\\\\)') { return @{ Path = $null; Error = "Not a full path - it must start with a drive letter like C:\ and include the file name.`n`n$p" } }
+    if ($p.EndsWith('\'))                    { return @{ Path = $null; Error = "That ends in a backslash (a folder). Include the file name.`n`n$p" } }
+    try {
+        if (Test-Path -LiteralPath $p -PathType Leaf)      { return @{ Path = (Get-Item -LiteralPath $p -Force).FullName; Error = $null } }
+        if (Test-Path -LiteralPath $p -PathType Container) { return @{ Path = $null; Error = "'$p' is a folder. Type the exact path INCLUDING the file name." } }
+        $parent = Split-Path -Parent $p
+        if ($parent -and (Test-Path -LiteralPath $parent -PathType Container)) {
+            return @{ Path = $null; Error = "The folder exists but the file was not found:`n$p" }
+        }
+        return @{ Path = $null; Error = "File not found:`n$p" }
+    } catch {
+        return @{ Path = $null; Error = "Could not evaluate path:`n$($_.Exception.Message)" }
+    }
+}
+
+function Read-TargetPath {
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = 'Threat Removal - Target File'; $f.Size = New-Object System.Drawing.Size(660, 215)
+    $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.TopMost = $true
+
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = "Type the EXACT full path INCLUDING the file name, e.g.`r`nC:\Windows\System32\getridofme.txt   (pasting with quotes is fine)"
+    $lbl.Location = New-Object System.Drawing.Point(12, 12); $lbl.Size = New-Object System.Drawing.Size(620, 40)
+
+    $tb = New-Object System.Windows.Forms.TextBox
+    $tb.Location = New-Object System.Drawing.Point(12, 62); $tb.Size = New-Object System.Drawing.Size(520, 24)
+
+    $br = New-Object System.Windows.Forms.Button
+    $br.Text = 'Browse...'; $br.Location = New-Object System.Drawing.Point(540, 60); $br.Size = New-Object System.Drawing.Size(95, 27)
+    $br.Add_Click({
+        $d = New-Object System.Windows.Forms.OpenFileDialog
+        $d.Title = 'Select threat file'; $d.Filter = 'All files (*.*)|*.*'
+        $d.CheckFileExists = $true; $d.DereferenceLinks = $false
+        if ($d.ShowDialog() -eq 'OK') { $tb.Text = $d.FileName }
+    })
+
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = 'Next'; $ok.Location = New-Object System.Drawing.Point(430, 115); $ok.Size = New-Object System.Drawing.Size(95, 32); $ok.DialogResult = 'OK'
+    $cn = New-Object System.Windows.Forms.Button
+    $cn.Text = 'Cancel'; $cn.Location = New-Object System.Drawing.Point(540, 115); $cn.Size = New-Object System.Drawing.Size(95, 32); $cn.DialogResult = 'Cancel'
+    $f.AcceptButton = $ok; $f.CancelButton = $cn
+    $f.Controls.AddRange(@($lbl, $tb, $br, $ok, $cn))
+
+    while ($true) {
+        if ($f.ShowDialog() -ne 'OK') { return $null }
+        $res = Resolve-TargetInput -Raw $tb.Text
+        if ($res.Path) { return $res.Path }
+        Notify $res.Error 'Threat Removal - Target File' 'Warning'
+    }
+}
+
+function Get-InfoText {
+    param($Rep, $Procs, $Refs, [string]$Full)
+    $L = New-Object System.Collections.Generic.List[string]
+    $L.Add('FILE')
+    $L.Add("  Path      : $Full")
+    $L.Add("  Size      : $('{0:N0}' -f $Rep.Size) bytes")
+    $L.Add("  Owner     : $($Rep.Owner)")
+    $L.Add('')
+    $L.Add('SIGNATURE')
+    $L.Add("  Status    : $($Rep.Signature)")
+    $L.Add("  Signer    : $(if ($Rep.Signer) { $Rep.Signer } else { '(none)' })")
+    $L.Add('')
+    $L.Add('SHA256')
+    $L.Add("  $($Rep.SHA256)")
+    $L.Add('')
+    $L.Add('PROCESSES USING THIS FILE')
+    if (@($Procs).Count -eq 0) { $L.Add('  (none)') }
+    foreach ($p in @($Procs)) {
+        $svc = (@($p.Services) | ForEach-Object { $_.Name }) -join ','
+        $prt = @($p.Ports) -join ','
+        $flag = if ($p.Critical) { '  [CRITICAL - will not be stopped]' } else { '' }
+        $L.Add("  PID $($p.Id)  $($p.Name)  ($($p.Why))  services: $(if ($svc) { $svc } else { '-' })  listening: $(if ($prt) { $prt } else { '-' })$flag")
+    }
+    $L.Add('')
+    $L.Add('PERSISTENCE REFERENCING THIS FILE (NOT removed by this tool)')
+    if (@($Refs).Count -eq 0) { $L.Add('  (none found)') }
+    foreach ($r in @($Refs)) { $L.Add("  - $r") }
+    $L.Add('')
+    $L.Add('ACTIONS')
+    $L.Add('  Quarantine : move to quarantine (reversible)')
+    $L.Add('  Delete     : permanent')
+    $L.Add('  Both       : evidence copy in quarantine, then delete original')
+    $L.Add('  Cancel     : do nothing')
+    ($L -join "`r`n")
+}
+
+function Read-Action {
+    param([string]$InfoText, [string]$Suffix = '')
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = "Threat Removal - Confirm Target and Choose Action$Suffix"
+    $f.Size = New-Object System.Drawing.Size(820, 600); $f.StartPosition = 'CenterScreen'
+    $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.TopMost = $true; $f.Tag = 'Cancel'
+
+    $tb = New-Object System.Windows.Forms.TextBox
+    $tb.Multiline = $true; $tb.ReadOnly = $true; $tb.ScrollBars = 'Both'; $tb.WordWrap = $false
+    $tb.Font = New-Object System.Drawing.Font('Consolas', 9.5)
+    $tb.Location = New-Object System.Drawing.Point(12, 12); $tb.Size = New-Object System.Drawing.Size(780, 480); $tb.Text = $InfoText
+    $f.Controls.Add($tb)
+
+    $defs = @(
+        @{ T = 'Quarantine (reversible)';  A = 'Quarantine'; X = 12;  W = 190; C = 'LightGoldenrodYellow' },
+        @{ T = 'Delete (permanent)';       A = 'Delete';     X = 212; W = 190; C = 'MistyRose' },
+        @{ T = 'Both (copy + delete)';     A = 'Both';       X = 412; W = 190; C = 'LightSalmon' },
+        @{ T = 'Cancel';                   A = 'Cancel';     X = 612; W = 180; C = 'Gainsboro' }
+    )
+    foreach ($d in $defs) {
+        $b = New-Object System.Windows.Forms.Button
+        $b.Text = $d.T; $b.Tag = $d.A
+        $b.Location = New-Object System.Drawing.Point($d.X, 505); $b.Size = New-Object System.Drawing.Size($d.W, 44)
+        $b.BackColor = [System.Drawing.Color]::FromName($d.C)
+        $b.Add_Click({ param($s, $e) $f.Tag = $s.Tag; $f.Close() })
+        $f.Controls.Add($b)
+    }
+    [void]$f.ShowDialog()
+    return [string]$f.Tag
+}
+
+function Read-TypedYes {
+    param([string]$Text)
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = 'Scored-service guard'; $f.Size = New-Object System.Drawing.Size(560, 280)
+    $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.TopMost = $true
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = $Text + "`r`n`r`nType YES (capitals) to stop it, anything else to skip:"
+    $lbl.Location = New-Object System.Drawing.Point(12, 12); $lbl.Size = New-Object System.Drawing.Size(520, 130)
+    $tb = New-Object System.Windows.Forms.TextBox
+    $tb.Location = New-Object System.Drawing.Point(12, 150); $tb.Size = New-Object System.Drawing.Size(520, 24)
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = 'OK'; $ok.Location = New-Object System.Drawing.Point(330, 190); $ok.Size = New-Object System.Drawing.Size(95, 32); $ok.DialogResult = 'OK'
+    $cn = New-Object System.Windows.Forms.Button
+    $cn.Text = 'Skip'; $cn.Location = New-Object System.Drawing.Point(437, 190); $cn.Size = New-Object System.Drawing.Size(95, 32); $cn.DialogResult = 'Cancel'
+    $f.AcceptButton = $ok; $f.CancelButton = $cn
+    $f.Controls.AddRange(@($lbl, $tb, $ok, $cn))
+    if ($f.ShowDialog() -ne 'OK') { return $false }
+    return ($tb.Text -ceq 'YES')
+}
+
+# ----------------------------------------------------------------------------
+# PROCESSES
+# ----------------------------------------------------------------------------
 function Stop-RelatedProcesses {
     param($Procs, [string]$Full, [string]$Mode)
- 
+
     if (-not $Procs -or @($Procs).Count -eq 0) { return }
     if ($Mode -eq 'Prompt') {
-        $c = Read-Choice 'Stop these processes? [Y]es / [N]o (default N)' @('Y', 'N') 'N'
-        $Mode = if ($c -eq 'Y') { 'Yes' } else { 'No' }
+        $lines = foreach ($p in $Procs) {
+            $svc = (@($p.Services) | ForEach-Object { $_.Name }) -join ','
+            $prt = @($p.Ports) -join ','
+            "  PID $($p.Id)  $($p.Name)  services: $(if ($svc) { $svc } else { '-' })  listening: $(if ($prt) { $prt } else { '-' })"
+        }
+        $Mode = if (Ask-Yes ("These processes are using the file:`n`n" + ($lines -join "`n") + "`n`nStop them now?") 'Threat Removal - Processes') { 'Yes' } else { 'No' }
     }
     if ($Mode -ne 'Yes') { Write-Log 'Process stop skipped by operator.'; return }
- 
+
     foreach ($p in $Procs) {
         if ($p.Critical -or $p.Id -eq $PID) {
             Write-Log "Refusing to stop critical process $($p.Name) ($($p.Id)). Handle manually." 'WARN'
@@ -233,14 +400,12 @@ function Stop-RelatedProcesses {
         }
         $risky = (@($p.Services).Count -gt 0) -or (@($p.Ports).Count -gt 0)
         if ($risky -and -not $Force) {
-            Write-Host ""
-            Write-Host "  $($p.Name) ($($p.Id)) may be tied to a scored service:" -ForegroundColor Yellow
-            if (@($p.Services).Count) { Write-Host "    Services : $((@($p.Services) | ForEach-Object Name) -join ', ')" -ForegroundColor Yellow }
-            if (@($p.Ports).Count)    { Write-Host "    Listening: $(@($p.Ports) -join ', ')" -ForegroundColor Yellow }
-            $t = Read-Host "  Type YES (capitals) to stop it, anything else to skip"
-            if ($t -cne 'YES') { Write-Log "Skipped stopping $($p.Name) ($($p.Id))." 'WARN'; continue }
+            $txt = "$($p.Name) ($($p.Id)) may be tied to a scored service:"
+            if (@($p.Services).Count) { $txt += "`r`n    Services : $((@($p.Services) | ForEach-Object { $_.Name }) -join ', ')" }
+            if (@($p.Ports).Count)    { $txt += "`r`n    Listening: $(@($p.Ports) -join ', ')" }
+            if (-not (Read-TypedYes -Text $txt)) { Write-Log "Skipped stopping $($p.Name) ($($p.Id))." 'WARN'; continue }
         }
- 
+
         try {
             if (@($p.Services).Count -gt 0) {
                 # Stop through the Service Control Manager instead of killing a shared host
@@ -260,134 +425,129 @@ function Stop-RelatedProcesses {
             Write-Log "Could not stop $($p.Name) ($($p.Id)): $($_.Exception.Message)" 'ERROR'
         }
     }
- 
+
     Start-Sleep -Seconds 1
     $left = @($Procs | Where-Object { Get-Process -Id $_.Id -ErrorAction SilentlyContinue })
     foreach ($l in $left) {
         Write-Log "Still running: $($l.Name) ($($l.Id)) - file may remain locked." 'WARN'
     }
 }
- 
+
+# ----------------------------------------------------------------------------
+# QUARANTINE STORE / RESTORE
+# ----------------------------------------------------------------------------
 function Get-QuarantineItems {
     Get-ChildItem -LiteralPath $QuarantineDir -Filter '*.json' -ErrorAction SilentlyContinue |
         ForEach-Object { try { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } catch {} }
 }
- 
+
 function Restore-Quarantined {
+    # Returns $true if restored.
     param([string]$Id)
     $metaFile = Join-Path $QuarantineDir "$Id.json"
-    if (-not (Test-Path -LiteralPath $metaFile)) { Write-Log "No quarantine record for ID $Id." 'ERROR'; return }
+    if (-not (Test-Path -LiteralPath $metaFile)) { Write-Log "No quarantine record for ID $Id." 'ERROR'; Notify "No quarantine record for ID $Id." 'Restore' 'Error'; return $false }
     $m = Get-Content -LiteralPath $metaFile -Raw | ConvertFrom-Json
     $src = Join-Path $QuarantineDir "$Id.quar"
-    if (Test-Path -LiteralPath $m.OriginalPath) { Write-Log "Original path already exists: $($m.OriginalPath)" 'ERROR'; return }
+    if (-not (Test-Path -LiteralPath $src)) { Write-Log "Quarantined file missing for ID $Id." 'ERROR'; Notify "Quarantined file missing for ID $Id." 'Restore' 'Error'; return $false }
+    if (Test-Path -LiteralPath $m.OriginalPath) { Write-Log "Original path already exists: $($m.OriginalPath)" 'ERROR'; Notify "Original path already exists:`n$($m.OriginalPath)" 'Restore' 'Error'; return $false }
     $parent = Split-Path -Parent $m.OriginalPath
-    if (-not (Test-Path -LiteralPath $parent)) { Write-Log "Original folder missing: $parent" 'ERROR'; return }
-    Write-Host "Restoring $($m.OriginalPath) (SHA256 $($m.SHA256))" -ForegroundColor Yellow
-    $c = Read-Choice 'Restoring puts a suspected-malicious file back. Continue? [Y]es / [N]o' @('Y', 'N') 'N'
-    if ($c -ne 'Y') { return }
-    Move-Item -LiteralPath $src -Destination $m.OriginalPath -Force
+    if (-not (Test-Path -LiteralPath $parent)) { Write-Log "Original folder missing: $parent" 'ERROR'; Notify "Original folder missing:`n$parent" 'Restore' 'Error'; return $false }
+
+    if (-not (Ask-Yes "Restoring puts a suspected-malicious file back. Continue?`n`n$($m.OriginalPath)`nSHA256 $($m.SHA256)" 'Restore')) { return $false }
+    try {
+        Move-Item -LiteralPath $src -Destination $m.OriginalPath -Force -ErrorAction Stop
+    } catch {
+        Write-Log "Restore of $Id failed: $($_.Exception.Message)" 'ERROR'; Notify "Restore failed:`n$($_.Exception.Message)" 'Restore' 'Error'; return $false
+    }
     $aclFile = Join-Path $QuarantineDir $m.AclFile
-    if (Test-Path -LiteralPath $aclFile) { try { Invoke-Icacls @($parent, '/restore', $aclFile, '/c') } catch { Write-Log $_ 'WARN' } }
+    if (Test-Path -LiteralPath $aclFile) { try { Invoke-Icacls @($parent, '/restore', $aclFile, '/c') } catch { Write-Log "$_" 'WARN' } }
     Write-Log "Restored $Id to $($m.OriginalPath)." 'OK'
+    Notify "Restored:`n$($m.OriginalPath)" 'Restore' 'Information'
+    return $true
 }
- 
+
+function Show-QuarantineManager {
+    $items = @(Get-QuarantineItems | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $QuarantineDir "$($_.Id).quar")) })
+    if ($items.Count -eq 0) { Notify 'Quarantine is empty.' 'Quarantine Manager' 'Information'; return }
+
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = 'Quarantine Manager'; $f.Size = New-Object System.Drawing.Size(1000, 480)
+    $f.StartPosition = 'CenterScreen'; $f.TopMost = $true
+
+    $lv = New-Object System.Windows.Forms.ListView
+    $lv.View = 'Details'; $lv.FullRowSelect = $true; $lv.MultiSelect = $false; $lv.GridLines = $true
+    $lv.Location = New-Object System.Drawing.Point(12, 12); $lv.Size = New-Object System.Drawing.Size(960, 380)
+    $lv.Anchor = 'Top,Bottom,Left,Right'
+    [void]$lv.Columns.Add('ID', 230); [void]$lv.Columns.Add('Original path', 360); [void]$lv.Columns.Add('Quarantined at', 150)
+    [void]$lv.Columns.Add('By', 130); [void]$lv.Columns.Add('Mode', 70)
+    foreach ($it in $items) {
+        $li = New-Object System.Windows.Forms.ListViewItem([string]$it.Id)
+        [void]$li.SubItems.Add([string]$it.OriginalPath)
+        [void]$li.SubItems.Add([string]$it.QuarantinedAt)
+        [void]$li.SubItems.Add([string]$it.QuarantinedBy)
+        [void]$li.SubItems.Add([string]$it.Disposition)
+        $li.Tag = $it.Id
+        [void]$lv.Items.Add($li)
+    }
+
+    $rb = New-Object System.Windows.Forms.Button
+    $rb.Text = 'Restore selected'; $rb.Location = New-Object System.Drawing.Point(12, 402); $rb.Size = New-Object System.Drawing.Size(160, 34); $rb.Anchor = 'Bottom,Left'
+    $rb.Add_Click({
+        if ($lv.SelectedItems.Count -eq 0) { return }
+        $sel = $lv.SelectedItems[0]
+        if (Restore-Quarantined -Id ([string]$sel.Tag)) { $lv.Items.Remove($sel) }
+    })
+    $cb = New-Object System.Windows.Forms.Button
+    $cb.Text = 'Close'; $cb.Location = New-Object System.Drawing.Point(812, 402); $cb.Size = New-Object System.Drawing.Size(160, 34); $cb.Anchor = 'Bottom,Right'
+    $cb.DialogResult = 'Cancel'
+    $f.CancelButton = $cb
+    $f.Controls.AddRange(@($lv, $rb, $cb))
+    [void]$f.ShowDialog()
+}
+
 # ----------------------------------------------------------------------------
 # PER-FILE WORKFLOW
 # ----------------------------------------------------------------------------
-# ---- Interactive target entry (via Get-ThreatPath.bat) ----------------------
-# The operator must type the EXACT full path including the file name,
-# e.g. C:\Windows\System32\getridofme.txt. No folder browsing or guessing.
-function Get-TargetFromLauncher {
-    $bat = Join-Path $PSScriptRoot 'Get-ThreatPath.bat'
-    $raw = $null
-    if (Test-Path -LiteralPath $bat) {
-        $tmp = Join-Path $QuarantineDir ('target_{0}.tmp' -f [guid]::NewGuid().ToString('N'))
-        try {
-            $proc = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" `
-                -ArgumentList "/d /c `"`"$bat`" `"$tmp`"`"" -NoNewWindow -Wait -PassThru
-            if ($proc.ExitCode -eq 0 -and (Test-Path -LiteralPath $tmp)) {
-                $raw = Get-Content -LiteralPath $tmp -Raw -Encoding OEM
-            }
-        } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
-    } else {
-        Write-Log "Launcher not found ($bat); using console prompt instead." 'WARN'
-        $raw = Read-Host 'Exact full path including file name (e.g. C:\Windows\System32\file.txt)'
-    }
-    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
- 
-    try {
-        $p = [Environment]::ExpandEnvironmentVariables($raw.Trim().Trim('"').Trim())
- 
-        if (Test-Path -LiteralPath $p -PathType Leaf) { return (Get-Item -LiteralPath $p -Force).FullName }
- 
-        if (Test-Path -LiteralPath $p -PathType Container) {
-            Write-Log "'$p' is a folder. Re-run and type the exact path INCLUDING the file name - cancelled." 'WARN'
-            return $null
-        }
- 
-        $parent = Split-Path -Parent $p
-        if ($parent -and (Test-Path -LiteralPath $parent -PathType Container)) {
-            Write-Log "Folder exists but the file was not found: $p - cancelled." 'WARN'
-        } else {
-            Write-Log "File not found: $p - cancelled." 'WARN'
-        }
-    } catch {
-        Write-Log "Could not evaluate path '$raw': $($_.Exception.Message)" 'ERROR'
-    }
-    return $null
+function Show-Result {
+    param([string]$Outcome, [string]$Full)
+    $text = "Result : $Outcome`r`nFile   : $Full`r`n`r`n" + (($script:Trail | ForEach-Object { $_ }) -join "`r`n") + "`r`n`r`nLog: $LogFile"
+    if ($script:LogFailed) { $text += "`r`n`r`nWARNING: writing to the main log FAILED. Fallback log: $FallbackLog" }
+    $icon = switch ($Outcome) { 'SUCCESS' { 'Information' } 'DRY RUN' { 'Information' } 'CANCELLED' { 'Information' } 'REFUSED' { 'Warning' } 'PARTIAL' { 'Warning' } default { 'Error' } }
+    Notify $text "Threat Removal - $Outcome" $icon
 }
- 
+
 function Invoke-ThreatRemoval {
     param([string]$Full)
- 
-    Write-Host ""
-    Write-Host ('=' * 70)
+    $script:Trail.Clear()
+
     $rep = Get-FileReport -Full $Full
-    $rep | Format-List | Out-String | Write-Host
- 
+
     $why = Test-Protected -Full $Full -Report $rep
     if ($why -and -not $Force) {
         Write-Log "REFUSED $Full - $why. Use -Force only if you are certain." 'WARN'
+        Show-Result 'REFUSED' $Full
         return
     }
     if ($why) { Write-Log "Protected target overridden with -Force: $why" 'WARN' }
- 
+
     $procs = @(Get-RelatedProcesses -Full $Full)
-    if ($procs.Count) {
-        Write-Host "Processes using this file:" -ForegroundColor Cyan
-        $procs | Select-Object Id, Name, Why, Critical,
-            @{ n = 'Services'; e = { (@($_.Services) | ForEach-Object Name) -join ',' } },
-            @{ n = 'ListenPorts'; e = { @($_.Ports) -join ',' } } |
-            Format-Table -AutoSize | Out-String | Write-Host
-    } else {
-        Write-Host 'No running process or loaded module references this file.' -ForegroundColor Green
-    }
- 
-    $refs = @(Get-PersistenceRefs -Full $Full)
-    if ($refs.Count) {
-        Write-Host 'Persistence referencing this file (NOT removed by this tool):' -ForegroundColor Yellow
-        $refs | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
-    }
- 
+    $refs  = @(Get-PersistenceRefs -Full $Full)
+
     $choice = $Action
     if ($choice -eq 'Prompt') {
-        Write-Host ""
-        Write-Host "  FILE   : $Full" -ForegroundColor White
-        Write-Host "  SHA256 : $($rep.SHA256)" -ForegroundColor White
-        Write-Host "  SIGNED : $($rep.Signature) $($rep.Signer)" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  [1] Yes - Quarantine  (move to quarantine; reversible)"
-        Write-Host "  [2] Yes - Delete      (permanent)"
-        Write-Host "  [3] Yes - Both        (hash-verified evidence copy in quarantine, then delete original)"
-        Write-Host "  [C] Cancel"
-        $c = Read-Choice 'Choice (1 / 2 / 3 / C, default C)' @('1', '2', '3', 'C') 'C'
-        $choice = switch ($c) { '1' { 'Quarantine' } '2' { 'Delete' } '3' { 'Both' } 'C' { 'Cancel' } }
+        $suffix = if ($DryRun) { '  [DRY RUN]' } else { '' }
+        $choice = Read-Action -InfoText (Get-InfoText -Rep $rep -Procs $procs -Refs $refs -Full $Full) -Suffix $suffix
     }
-    if ($choice -eq 'Cancel') { Write-Log "Cancelled by operator: $Full (SHA256 $($rep.SHA256))"; return }
- 
+    if ($choice -eq 'Cancel') {
+        Write-Log "Cancelled by operator: $Full (SHA256 $($rep.SHA256))"
+        Show-Result 'CANCELLED' $Full
+        return
+    }
+    Write-Log "Operator chose $choice for $Full (SHA256 $($rep.SHA256))"
+
     $id = [guid]::NewGuid().ToString('N')
     $aclName = "$id.acl"
- 
+
     # --- 1. Ownership via ICACLS --------------------------------------------
     if ($DryRun) {
         Write-Log "[DRYRUN] Would save ACL, run icacls /setowner $AdminSid and grant Administrators full control on $Full"
@@ -400,22 +560,27 @@ function Invoke-ThreatRemoval {
             Write-Log "Took ownership of $Full (original ACL saved as $aclName)." 'OK'
         } catch {
             Write-Log "Ownership step failed for ${Full}: $($_.Exception.Message)" 'ERROR'
+            Show-Result 'FAILED' $Full
             return
         }
     }
- 
+
     # --- 2. Stop processes --------------------------------------------------
     if ($DryRun) {
         if ($procs.Count) { Write-Log "[DRYRUN] Would offer to stop $($procs.Count) process(es)." }
     } else {
         Stop-RelatedProcesses -Procs $procs -Full $Full -Mode $StopProcesses
     }
- 
+
     # --- 3. Quarantine or delete -------------------------------------------
     $act = $choice
- 
-    if ($DryRun) { Write-Log "[DRYRUN] Would $act $Full  (SHA256 $($rep.SHA256))"; return }
- 
+    if ($DryRun) {
+        Write-Log "[DRYRUN] Would $act $Full  (SHA256 $($rep.SHA256))"
+        Show-Result 'DRY RUN' $Full
+        return
+    }
+
+    $stored = $false
     try {
         if ($act -in 'Quarantine', 'Both') {
             $dest = Join-Path $QuarantineDir "$id.quar"
@@ -430,21 +595,24 @@ function Invoke-ThreatRemoval {
                         Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
                         throw 'Evidence copy hash mismatch - original NOT deleted.'
                     }
+                } else {
+                    Write-Log 'Original hash unavailable - evidence copy is NOT hash-verified; deleting anyway.' 'WARN'
                 }
             }
+            $stored = $true
             Invoke-Icacls @($dest, '/inheritance:r', '/grant:r', "${SystemSid}:(F)", "${AdminSid}:(F)")
             [ordered]@{
-                Id            = $id
-                OriginalPath  = $Full
-                SHA256        = $rep.SHA256
-                Size          = $rep.Size
-                Signature     = $rep.Signature
-                Signer        = $rep.Signer
-                OriginalOwner = $rep.Owner
-                AclFile       = $aclName
-                Disposition   = $act
-                QuarantinedAt = (Get-Date).ToString('o')
-                QuarantinedBy = "$env:USERDOMAIN\$env:USERNAME"
+                Id              = $id
+                OriginalPath    = $Full
+                SHA256          = $rep.SHA256
+                Size            = $rep.Size
+                Signature       = $rep.Signature
+                Signer          = $rep.Signer
+                OriginalOwner   = $rep.Owner
+                AclFile         = $aclName
+                Disposition     = $act
+                QuarantinedAt   = (Get-Date).ToString('o')
+                QuarantinedBy   = "$env:USERDOMAIN\$env:USERNAME"
                 PersistenceRefs = $refs
             } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $QuarantineDir "$id.json") -Encoding UTF8
             Write-Log "QUARANTINED ($act) $Full -> $id  (SHA256 $($rep.SHA256))" 'OK'
@@ -457,46 +625,53 @@ function Invoke-ThreatRemoval {
     } catch {
         Write-Log "$act failed for ${Full}: $($_.Exception.Message)  (file may be locked by a process still running)" 'ERROR'
     }
- 
+
     if ($refs.Count) { Write-Log "Reminder: $($refs.Count) persistence entry(ies) still reference $Full - remove them or it will respawn." 'WARN' }
+
+    $gone   = -not (Test-Path -LiteralPath $Full)
+    $hadErr = @($script:Trail | Where-Object { $_.StartsWith('[ERROR]') }).Count -gt 0
+    $outcome = if ($gone -and -not $hadErr) { 'SUCCESS' }
+               elseif ($gone -or $stored)   { 'PARTIAL' }
+               else                         { 'FAILED' }
+    Show-Result $outcome $Full
 }
- 
+
 # ----------------------------------------------------------------------------
 # MAIN
 # ----------------------------------------------------------------------------
 Initialize-Store
- 
+
 Write-Host "Host: $env:COMPUTERNAME   Running as: $env:USERDOMAIN\$env:USERNAME" -ForegroundColor Cyan
 try {
     $self = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
     Write-Host "Script SHA256: $self  (compare with your known-good copy)" -ForegroundColor Cyan
 } catch {}
 if ($DryRun) { Write-Host '*** DRY RUN - no changes will be made ***' -ForegroundColor Magenta }
- 
-if ($ListQuarantine) {
-    Get-QuarantineItems | Select-Object Id, OriginalPath, SHA256, QuarantinedAt, QuarantinedBy | Format-Table -AutoSize
-    return
-}
-if ($Restore) { Restore-Quarantined -Id $Restore; return }
- 
+
+if ($ListQuarantine) { Show-QuarantineManager; return }
+if ($Restore) { [void](Restore-Quarantined -Id $Restore); return }
+
 if (-not $Path -or $Path.Count -eq 0) {
-    $target = Get-TargetFromLauncher
+    $target = Read-TargetPath
     if (-not $target) { Write-Log 'Cancelled - no valid target selected.' 'WARN'; return }
     $Path = @($target)
 }
- 
+
 foreach ($p in $Path) {
     $resolved = @()
     if (Test-Path -LiteralPath $p) { $resolved = @(Get-Item -LiteralPath $p -Force) }
     else { $resolved = @(Get-ChildItem -Path $p -Force -ErrorAction SilentlyContinue) }
- 
-    if ($resolved.Count -eq 0) { Write-Log "Not found: $p" 'WARN'; continue }
+
+    if ($resolved.Count -eq 0) { Write-Log "Not found: $p" 'WARN'; Notify "Not found:`n$p" 'Threat Removal' 'Warning'; continue }
     foreach ($item in $resolved) {
         if ($item.PSIsContainer) { Write-Log "Skipping directory (files only): $($item.FullName)" 'WARN'; continue }
         try { Invoke-ThreatRemoval -Full $item.FullName }
-        catch { Write-Log "Unhandled error on $($item.FullName): $($_.Exception.Message)" 'ERROR' }
+        catch {
+            Write-Log "Unhandled error on $($item.FullName): $($_.Exception.Message)" 'ERROR'
+            Show-Result 'FAILED' $item.FullName
+        }
     }
 }
- 
+
 Write-Host ""
 Write-Host "Log: $LogFile" -ForegroundColor Cyan
