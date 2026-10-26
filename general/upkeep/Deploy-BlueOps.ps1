@@ -7,7 +7,7 @@ New-Item -ItemType Directory -Path $baseDir -Force | Out-Null
 $services=@{AD='NTDS';DNS='DNS';Openfire='openfire';Telnet='inetd';IIS='W3SVC';CA='CertSvc'}
 # Keep WRITE_DAC for administrative maintenance. This cannot stop an equivalent admin attacker.
 $lockedSDDL='D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCLCSWRPWPDTLOCRRCWD;;;BA)'
-$unlockedSDDL='D:(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCLCSWRPWPDTLOCRRCWD;;;BA)'
+$unlockedSDDL='D:(A;;CCLCSWLORC;;;AU)(A;;CCDCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCDCLCSWRPWPDTLOCRRCWD;;;BA)'
 function Invoke-BlueOpsSc([string[]]$Items) {
     $out=@(& "$env:SystemRoot\System32\sc.exe" @Items 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "sc.exe $($Items -join ' ') failed: $($out -join ' ')" }
@@ -77,7 +77,7 @@ $map = @{ "AD"="NTDS"; "DNS"="DNS"; "Openfire"="openfire"; "Telnet"="inetd"; "II
 $svcName = $map[$req.Service]
 
 $lockedSDDL = "D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCLCSWRPWPDTLOCRRCWD;;;BA)"
-$unlockedSDDL = "D:(A;;CCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCLCSWRPWPDTLOCRRCWD;;;BA)"
+$unlockedSDDL = "D:(A;;CCDCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCDCLCSWRPWPDTLOCRRCWD;;;BA)"
 
 sc.exe sdset $svcName $unlockedSDDL | Out-Null
 if ($LASTEXITCODE) { throw 'Could not unlock service; no control action performed.' }
