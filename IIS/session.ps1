@@ -3,7 +3,7 @@ session.ps1 - Run in 64-bit Windows PowerShell 5.1 as Administrator, from consol
 .\session.ps1 installs/repairs. -Ask chooses a separate verification password.
 .\session.ps1 -Remove removes this guard and restores its owned SSH/WinRM settings.
 The default password is the UserPassword constant below; change it or prefer -Ask.
-This does NOT reset Windows passwords or change accounts/groups. No Grey exemptions.
+This does NOT reset Windows passwords or change accounts/groups. Listed Grey users bypass all gates by authenticated account SID.
 RDP: new login/reconnect -> ~15 seconds -> popup -> 15 seconds to answer.
 Wrong password, closed popup or timeout logs off that RDP session. Existing connections
 at first installation are not kicked mid-setup. Console/RustDesk sessions are untouched.
@@ -20,13 +20,14 @@ The hardcoded password exists in THIS source, but only a salted PBKDF2 hash is i
 PATHS / STATE (all beneath ProgramData unless stated otherwise):
 Session\session-engine.ps1 - installed runtime; scheduled task Session-Guard runs as SYSTEM.
 Session\Native.cs - WTS/popup and named-pipe verification helper, readable by users.
-Session\public.json - timing and supported service settings, readable by users.
+Session\public.json - timing, supported services and resolved Grey account SIDs/names, readable by users.
 Session\private.json - private salted hash, never a Windows-account password.
 Session\rollback.json - original SSH configuration/service modes and owned change hashes.
 Session\sshd_config.candidate - syntax-checked copy of the SSH gate configuration.
 Session\Microsoft.PowerShell*.ps1 - WinRM fallback startup hooks, if needed.
 Session\repair\* - private verified copies of the installed public files/hooks.
 Session\existing-sessions.json / verified-sessions.json - current-boot RDP identity records.
+Repairs preserve original rollback state; if a script/policy update occurs, the watcher restarts.
 Session\status.json / audit.log - heartbeat/errors and RDP decisions (no typed passwords).
 Session\stop.flag - cooperative watcher shutdown marker; *.tmp are atomic JSON writes.
 Session-Setup\session-engine.ps1 - private installer staging file.
@@ -45,6 +46,8 @@ param([Parameter(ParameterSetName='Remove')][switch]$Remove,
 # EDIT this separate verification password, or use -Ask. It is NOT a Windows password.
 # A hardcoded secret is visible to anyone who can read THIS source file.
 $UserPassword = 'BlueTeam-Session-2026!'
+# Grey Team accounts (including the local administrator account, greyteamadmin).
+$GreyTeamUsers = @('kingneptune', 'paintythepirate', 'greyteamadmin')
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -ne 'Desktop' -or -not [Environment]::Is64BitProcess){throw 'Use 64-bit Windows PowerShell 5.1 as Administrator.'}
 $id=[Security.Principal.WindowsIdentity]::GetCurrent()
@@ -66,6 +69,7 @@ param(
     [ValidateRange(1,300)][int]$GraceSeconds = 15,
     [ValidateRange(5,300)][int]$ResponseSeconds = 15,
     [ValidateSet('Rdp','Ssh','WinRm')][string[]]$Services = @('Rdp','Ssh','WinRm'),
+    [string[]]$GreyAccounts = @(),
     [string]$ComputerName = '',
     [pscredential]$Credential,
     [switch]$UseSSL
@@ -178,6 +182,48 @@ function Restore-Settings($Manifest) {
     Restore-ServiceState $Manifest.SshService
 }
 
+function Resolve-GreyIdentities([string[]]$Names) {
+    # Resolve once as administrator: user gates read a SID list from public.json (read-only to non-administrators).
+    # Account/display-name text alone is never enough to grant an exemption.
+    $computer=Get-CimInstance Win32_ComputerSystem
+    $hostName=[string]$computer.Name
+    $domainName=if($computer.PartOfDomain){[string]$computer.Domain}else{''}
+    $found=@()
+    foreach($name in @($Names | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)) {
+        $candidates=if($name -match '[\\@]'){@($name)}else{
+            $choices=@("$hostName\$name")
+            if($domainName){$choices+=("$domainName\$name")}
+            $choices
+        }
+        $resolved=$null
+        foreach($candidate in $candidates){
+            try {
+                $accountObject=New-Object -TypeName System.Security.Principal.NTAccount -ArgumentList $candidate
+                $sid=$accountObject.Translate([Security.Principal.SecurityIdentifier])
+                $account=$sid.Translate([Security.Principal.NTAccount]).Value
+                $resolved=[pscustomobject]@{Sid=$sid.Value;Account=$account}
+                break
+            }catch [Security.Principal.IdentityNotMappedException] { continue }
+        }
+        if($resolved){if($resolved.Sid -notin @($found | ForEach-Object Sid)){$found+=$resolved}}
+        else{Write-Warning "Grey account '$name' was not found. It will NOT be exempt; rerun after the account is available."}
+    }
+    return $found
+}
+function Test-GreySid([string]$Sid,$Config) {
+    # Never match user-controlled display names: compare the authenticated Windows token SID.
+    return ([bool]$Sid -and $Sid -in @($Config.GreySids))
+}
+function Update-ManagedCopy([string]$Path,$Manifest) {
+    # Keep repair copy/hash in sync when the trusted installer itself updates an owned file.
+    $entry=@($Manifest.ManagedFiles | Where-Object { $_.Path -ieq $Path })
+    if($entry.Count -ne 1){throw "Missing or ambiguous owned-file rollback record: $Path"}
+    Plain $entry[0].Backup
+    Copy-Item -LiteralPath $Path -Destination $entry[0].Backup -Force
+    Secure-Path $entry[0].Backup
+    $entry[0].Hash=(Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+}
+
 function Save-ServiceState([string]$Name) {
     $svc=Get-CimInstance Win32_Service -Filter "Name='$Name'"
     if(-not $svc){return $null}
@@ -205,6 +251,12 @@ function Restore-ServiceState($Saved) {
 }
 function Stop-WinRm($Manifest,[switch]$NoFallback) {
     if(-not $Manifest.WinRmService){$Manifest.WinRmMode='NotInstalled';Write-Json $manifestPath $Manifest;return $true}
+    # Already stopped/disabled: succeed without touching the service or its saved original state.
+    $current=Get-CimInstance Win32_Service -Filter "Name='WinRM'"
+    if($current -and $current.State -eq 'Stopped' -and $current.StartMode -eq 'Disabled'){
+        $Manifest.WinRmMode='Disabled';Write-Json $manifestPath $Manifest
+        return $true
+    }
     $Manifest.WinRmService.Changed=$true;$Manifest.WinRmService.ExpectedMode='Disabled'
     Write-Json $manifestPath $Manifest
     try{
@@ -258,6 +310,32 @@ function Repair-Session {
             Secure-Path $file.Path -Readable
         }
     }
+    # Repeated installs must preserve the original WinRmService snapshot in rollback.json.
+    # Only replace files owned by Session after the repair integrity checks above.
+    $policy=Get-Content -LiteralPath $publicPath -Raw | ConvertFrom-Json
+    $grey=@(Resolve-GreyIdentities $GreyAccounts)
+    $newSids=@($grey | ForEach-Object Sid)
+    $newNames=@($grey | ForEach-Object Account)
+    $oldSids=@($policy.GreySids)
+    $oldNames=@($policy.GreyAccounts)
+    $missingFields=($null -eq $policy.PSObject.Properties['GreySids'] -or $null -eq $policy.PSObject.Properties['GreyAccounts'])
+    $policyChanged=($missingFields -or ($newSids -join '|') -cne ($oldSids -join '|') -or ($newNames -join '|') -cne ($oldNames -join '|'))
+    if($policyChanged){
+        $policy | Add-Member -NotePropertyName GreySids -NotePropertyValue $newSids -Force
+        $policy | Add-Member -NotePropertyName GreyAccounts -NotePropertyValue $newNames -Force
+        Write-Json $publicPath $policy
+        Secure-Path $publicPath -Readable
+        Update-ManagedCopy $publicPath $manifest
+    }
+    $engineChanged=((Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash)
+    if($engineChanged){
+        Copy-Item -LiteralPath $PSCommandPath -Destination $installed -Force
+        Secure-Path $installed -Readable
+        Update-ManagedCopy $installed $manifest
+    }
+    if($policyChanged -or $engineChanged){Write-Json $manifestPath $manifest}
+    # An old running watcher keeps its in-memory settings/code. Restart only after policy or code changes.
+    if($policyChanged -or $engineChanged){End-Guard}
     Remove-Item -LiteralPath (Join-Path $root 'stop.flag') -Force -ErrorAction SilentlyContinue
     $task=Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction SilentlyContinue
     if($task){
@@ -291,16 +369,19 @@ if($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion -lt [ve
 
 # User-side gates do not need administrator rights. No Windows passwords are changed.
 if($Action -in @('Prompt','SshGate','WinRmGate')){
-    Load-Native
     $cfg=Get-Content -LiteralPath $publicPath -Raw | ConvertFrom-Json
-    $exempt=$false
+    # Effective identity is taken from Windows, never from a supplied account/display name.
+    $exempt=Test-GreySid ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value) $cfg
     if($Action -eq 'WinRmGate'){
         # Identity is obtained from the authenticated remoting context, never from ApplicationArguments.
         if(-not $PSSenderInfo){throw 'This gate must run as a PowerShell remoting startup script.'}
-        $sender=(New-Object Security.Principal.NTAccount($PSSenderInfo.UserInfo.Identity.Name)).Translate([Security.Principal.SecurityIdentifier]).Value
+        $senderAccount=New-Object -TypeName System.Security.Principal.NTAccount -ArgumentList ([string]$PSSenderInfo.UserInfo.Identity.Name)
+        $sender=$senderAccount.Translate([Security.Principal.SecurityIdentifier]).Value
         $actual=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         if($sender -ne $actual){throw 'RunAs/virtual-account endpoints are not supported by Session.'}
+        $exempt=Test-GreySid $actual $cfg
         if($exempt){return}
+        Load-Native
         $code=[string]$PSSenderInfo.ApplicationArguments['SessionCode']
         try{if(-not [SessionNative]::Verify('WinRm',$code)){throw 'Separate verification password missing or incorrect. Use session-engine.ps1 -Action Connect.'}}
         finally{$code=$null}
@@ -309,6 +390,7 @@ if($Action -in @('Prompt','SshGate','WinRmGate')){
     if($Action -eq 'SshGate'){
         try{[Console]::TreatControlCAsInput=$true}catch{}
         if(-not $exempt){
+            Load-Native
             Write-Host "Windows login succeeded. Separate verification begins in $($cfg.GraceSeconds) seconds."
             Start-Sleep -Seconds $cfg.GraceSeconds
             $secret=Read-Code $cfg.ResponseSeconds
@@ -322,6 +404,7 @@ if($Action -in @('Prompt','SshGate','WinRmGate')){
         exit $LASTEXITCODE
     }
     if($exempt){return}
+    Load-Native
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     $form=New-Object Windows.Forms.Form
@@ -371,7 +454,8 @@ if($Action -eq 'Watch'){
                     $winState=Get-CimInstance Win32_Service -Filter "Name='WinRM'"
                     if($winState -and ($winState.State -ne 'Stopped' -or $winState.StartMode -ne 'Disabled')){$errors+='WinRM disable setting drifted; run session.ps1 again to repair it.'}
                 }
-                if(-not $gate.Alive){throw "Verification listener unavailable: $($gate.Error)"}
+                $listenerAlive=[bool]$gate.Alive
+                if(-not $listenerAlive){$errors+="Verification listener unavailable: $($gate.Error)"}
                 if($cfg.Services -contains 'Rdp' -and (Get-Content $manifestPath -Raw|ConvertFrom-Json).State -eq 'Active'){
                     $sessions=@([SessionNative]::Sessions());$live=@($sessions|ForEach-Object Key)
                     foreach($s in $sessions){
@@ -381,11 +465,29 @@ if($Action -eq 'Watch'){
                             $state.Remove($s.Key);$value=$false;[void]$gate.RdpResults.TryRemove($s.Key,[ref]$value);$shown=[datetime]::MinValue;[void]$gate.RdpShown.TryRemove($s.Key,[ref]$shown);[void]$gate.RdpAnswered.TryRemove($s.Key,[ref]$shown)
                             continue
                         }
+                        # WTSQueryUserToken supplies the authenticated logon SID; names are not trusted.
+                        if(Test-GreySid $s.Sid $cfg){
+                            if($state.ContainsKey($s.Key)){$state.Remove($s.Key)}
+                            continue
+                        }
                         if($s.Key -in $existing -or $s.Key -in $verified){continue}
                         if(-not $state.ContainsKey($s.Key)){$state[$s.Key]=@{First=$now;Prompted=$false;Deadline=$null;PromptPid=0;LaunchDeadline=$null}}
                         $entry=$state[$s.Key]
                         if(-not $entry.Prompted -and ($now-$entry.First).TotalSeconds -ge $cfg.GraceSeconds){
-                            $entry.PromptPid=[SessionNative]::Prompt($s.Id,$installed,$cfg.ResponseSeconds)
+                            # Fail closed if the verifier is unavailable or a popup cannot launch.
+                            # Check the full logon key before logging off: session IDs can be reused.
+                            if(-not $listenerAlive){
+                                $still=@([SessionNative]::Sessions() | Where-Object Key -eq $s.Key)
+                                if($still.Count){[SessionNative]::Logoff($s.Id);Audit "DENIED Rdp session=$($s.Id) verifier-unavailable"}
+                                continue
+                            }
+                            try{$entry.PromptPid=[SessionNative]::Prompt($s.Id,$installed,$cfg.ResponseSeconds)}
+                            catch{
+                                $errors+="RDP popup launch failed: $($_.Exception.Message)"
+                                $still=@([SessionNative]::Sessions() | Where-Object Key -eq $s.Key)
+                                if($still.Count){[SessionNative]::Logoff($s.Id);Audit "DENIED Rdp session=$($s.Id) popup-launch-failed"}
+                                continue
+                            }
                             $entry.Prompted=$true;$entry.LaunchDeadline=$now.AddSeconds(15)
                             Audit "CHALLENGE Rdp session=$($s.Id) user=$($s.Account)"
                         }
@@ -457,7 +559,7 @@ $computer=Get-CimInstance Win32_ComputerSystem
 $domain=if($computer.PartOfDomain){$computer.Domain}else{''}
 
 $effective=@();if($Services -contains 'Rdp'){$effective+='Rdp'}
-$manifest=[pscustomobject]@{Version=2;State='Installing';Ssh=$null;Endpoints=@();WinRmService=(Save-ServiceState 'WinRM');WinRmMode='Pending';SshService=(Save-ServiceState 'sshd');ManagedFiles=@()}
+$manifest=[pscustomobject]@{Version=3;State='Installing';Ssh=$null;Endpoints=@();WinRmService=(Save-ServiceState 'WinRM');WinRmMode='Pending';SshService=(Save-ServiceState 'sshd');ManagedFiles=@()}
 $sshShell="$env:SystemRoot\System32\cmd.exe";$sshShellOption='/c'
 $sshSvc=Get-Service sshd -ErrorAction SilentlyContinue
 $winSvc=Get-Service WinRM -ErrorAction SilentlyContinue
@@ -616,7 +718,8 @@ public static class SessionNative {
 '@
 $nativeSource | Set-Content -LiteralPath (Join-Path $root 'Native.cs') -Encoding UTF8
 Secure-Path (Join-Path $root 'Native.cs') -Readable
-Write-Json $publicPath @{Version=1;Services=$effective;GraceSeconds=$GraceSeconds;ResponseSeconds=$ResponseSeconds;SshShell=$sshShell;SshShellOption=$sshShellOption}
+$grey=@(Resolve-GreyIdentities $GreyAccounts)
+Write-Json $publicPath @{Version=2;Services=$effective;GraceSeconds=$GraceSeconds;ResponseSeconds=$ResponseSeconds;SshShell=$sshShell;SshShellOption=$sshShellOption;GreySids=@($grey | ForEach-Object Sid);GreyAccounts=@($grey | ForEach-Object Account)}
 Secure-Path $publicPath -Readable
 Write-Json $privatePath @{Salt=[Convert]::ToBase64String($salt);Hash=$hash;Iterations=150000};Secure-Path $privatePath
 foreach($name in @('stop.flag','existing-sessions.json','verified-sessions.json','status.json')){Remove-Item -LiteralPath (Join-Path $root $name) -Force -ErrorAction SilentlyContinue}
@@ -668,7 +771,7 @@ Write-Json $manifestPath $manifest;Secure-Path $manifestPath
         $manifest.ManagedFiles+= [pscustomobject]@{Path=$path;Backup=$copy;Hash=(Get-FileHash $path).Hash}
     }
     $manifest.State='Active';Write-Json $manifestPath $manifest
-    Write-Host ('Session installed: RDP popup + SSH terminal gate (when sshd is installed); WinRM mode: '+$manifest.WinRmMode+'. All new RDP/SSH users are challenged. Console/RustDesk stays available.')
+    Write-Host ('Session installed: RDP popup + SSH terminal gate (when sshd is installed); WinRM mode: '+$manifest.WinRmMode+'. Only non-Grey users are challenged. Console/RustDesk stays available.')
     & $installed -Action Status
 }catch{
     $failure=$_.Exception.Message
@@ -696,7 +799,7 @@ try{
     $existing=if(Test-Path $record){Get-Content $record -Raw|ConvertFrom-Json}else{$null}
     if($Ask){$code=Read-Host 'Separate verification password (12-256 characters)' -AsSecureString}
     elseif(-not $existing -or $existing.State -eq 'Removed'){$code=ConvertTo-SecureString $UserPassword -AsPlainText -Force}
-    $arguments=@{Action='Install';GraceSeconds=15;ResponseSeconds=15;Services=@('Rdp','Ssh','WinRm')}
+    $arguments=@{Action='Install';GraceSeconds=15;ResponseSeconds=15;Services=@('Rdp','Ssh','WinRm');GreyAccounts=$GreyTeamUsers}
     if($code){$arguments.VerificationCode=$code}
     & $engine @arguments
 }finally{if($code){$code.Dispose()};$UserPassword=$null}

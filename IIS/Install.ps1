@@ -130,6 +130,44 @@ function Install-Sysinternals {
     return $true
 }
 
+function Install-Git {
+    $gitCmd = Get-Command git.exe -ErrorAction SilentlyContinue
+    $fallback = Join-Path $env:ProgramFiles 'Git\cmd\git.exe'
+    $existing = if ($gitCmd) { $gitCmd.Source } elseif (Test-Path $fallback) { $fallback } else { $null }
+    if ($existing) {
+        $v = (& $existing --version) -join ' '
+        Say "Git already installed ($v) - skipping." 'Green'
+        Add-ToMachinePath (Split-Path $existing)
+        return $true
+    }
+
+    $url = $null
+    try {
+        $page = Invoke-WebRequest -Uri 'https://api.github.com/repos/git-for-windows/git/releases/latest' -UseBasicParsing -TimeoutSec 60 -Headers @{ 'User-Agent' = 'Install.ps1' } -ErrorAction Stop
+        $json = $page.Content | ConvertFrom-Json
+        $asset = $json.assets | Where-Object { $_.name -match '^Git-[\d.]+-64-bit\.exe$' } | Select-Object -First 1
+        if ($asset) { $url = $asset.browser_download_url }
+    } catch { Say 'Could not query the GitHub releases API, using fallback version' 'Yellow' }
+    if (-not $url) { $url = 'https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.3/Git-2.56.0.3-64-bit.exe' }
+
+    $exe = Join-Path $DlDir ([IO.Path]::GetFileName($url))
+    $ok = Get-File -Urls @($url) -Dest $exe -MinBytes 20000000
+    if (-not $ok) {
+        $l = Find-LocalFile 'Git-*-64-bit.exe'
+        if ($l) { $exe = $l; $ok = $true; Say "Using local $exe" 'Yellow' }
+    }
+    if (-not $ok) { return $false }
+    if (-not (Test-Signature $exe 'Git for Windows|Johannes Schindelin')) { return $false }
+
+    Say 'Installing Git silently...'
+    $p = Start-Process -FilePath $exe -ArgumentList '/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /SUPPRESSMSGBOXES /o:PathOption=Cmd' -Wait -PassThru
+    $gitExe = Join-Path $env:ProgramFiles 'Git\cmd\git.exe'
+    for ($i = 0; ($i -lt 30) -and (-not (Test-Path $gitExe)); $i++) { Start-Sleep -Seconds 2 }
+    if (-not (Test-Path $gitExe)) { Say "Git install exit code $($p.ExitCode) - git.exe not found" 'Red'; return $false }
+    Add-ToMachinePath (Split-Path $gitExe)
+    return $true
+}
+
 function Get-WiresharkCandidates {
     # Wireshark 4.7+ (what "latest" points to) dropped Server 2019. 4.6 was the last branch that supports it.
     $names = @()
@@ -202,13 +240,15 @@ function Install-Npcap {
     if (-not $ok) { return $false }
     if (-not (Test-Signature $exe 'Insecure|Npcap|Nmap')) { return $false }
     Say 'Npcap installer opening now - click I Agree > Install > Next > Finish (free edition has no silent mode).' 'Yellow'
-    $p = Start-Process -FilePath $exe -PassThru
-    [void]$p.WaitForExit(900000)
-    Start-Sleep -Seconds 3
-    return [bool](Get-Service -Name npcap -ErrorAction SilentlyContinue)
+    Say 'Not waiting on it - the rest of this script continues while you click through it.' 'Yellow'
+    Start-Process -FilePath $exe
+    return $null   # pending - not yet confirmed, but not a failure either
 }
 
 $results = [ordered]@{}
+
+$r = @(Install-Git)[-1]
+$results['Git'] = if ($r) { 'OK' } else { 'FAILED' }
 
 $r = @(Install-Sysinternals)[-1]
 $results['Sysinternals'] = if ($r) { 'OK' } else { 'FAILED' }
@@ -218,13 +258,9 @@ $results['Wireshark'] = if ($r) { 'OK' } else { 'FAILED' }
 
 if ($r -and $InstallNpcap) {
     $n = @(Install-Npcap)[-1]
-    $results['Npcap'] = if ($n) { 'OK' } else { 'FAILED (Wireshark cannot capture without it)' }
-    if ($n) {
-        try {
-            $ifs = & (Join-Path $env:ProgramFiles 'Wireshark\dumpcap.exe') -D 2>$null
-            if ($ifs) { $results['Capture test'] = 'OK - interfaces found' } else { $results['Capture test'] = 'FAILED - no interfaces (reboot may be needed)' }
-        } catch { $results['Capture test'] = 'could not run dumpcap' }
-    }
+    if ($null -eq $n) { $results['Npcap'] = 'PENDING (installer window is open - finish it yourself)' }
+    elseif ($n) { $results['Npcap'] = 'OK' }
+    else { $results['Npcap'] = 'FAILED (Wireshark cannot capture without it)' }
 }
 
 Write-Host ''
@@ -233,6 +269,7 @@ $fail = $false
 foreach ($k in $results.Keys) {
     $color = 'Green'
     if ($results[$k] -like 'FAILED*') { $color = 'Red'; $fail = $true }
+    elseif ($results[$k] -like 'PENDING*') { $color = 'Yellow' }
     Write-Host (' {0,-14} {1}' -f $k, $results[$k]) -ForegroundColor $color
 }
 try { Stop-Transcript | Out-Null } catch { }
