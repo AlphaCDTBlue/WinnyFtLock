@@ -3,10 +3,7 @@
 # Run as Administrator
 
 $WatchPaths = @(
-    "C:\Users\Public",
-    "C:\Windows\Temp",
-    "C:\Temp",
-    "C:\ProgramData"
+    "C:\"
 )
 
 $SuspiciousExtensions = @(
