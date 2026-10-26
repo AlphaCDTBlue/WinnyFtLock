@@ -9,6 +9,9 @@
 cd "$env:USERPROFILE\Pictures\WinnyFtLock-main"
 Get-ChildItem -Recurse -File | Unblock-File
 powershell.exe -ExecutionPolicy Bypass -File .\DC-Phase1.ps1
+ - click b and then yes, click q and back in main powershell click enter
+ - click b and then exit notepad and click q and back in main powershell click enter
+ - 
 ```
 
 5. AD window: accept the baseline, then press **Q** after monitoring starts.
