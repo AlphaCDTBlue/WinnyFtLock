@@ -9,6 +9,7 @@ $Domain = "krusty.krab"
 
 # Approved administrative accounts.
 $AdminAccounts = @(
+    "Administrator",
     "mrkrabs",
     "spongebob",
     "squidward",
@@ -95,6 +96,10 @@ try {
     }
 
     Write-Host "[+] Connected to $Domain" -ForegroundColor Green
+}
+catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+    Write-Warning "Skipping missing account: $Username"
+    continue
 }
 catch {
     Write-Host "[ERROR] AD connection failed." -ForegroundColor Red
