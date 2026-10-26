@@ -8,7 +8,7 @@ $services=@{AD='NTDS';DNS='DNS';Openfire='openfire';Telnet='inetd';IIS='W3SVC';C
 # Keep WRITE_DAC for administrative maintenance. This cannot stop an equivalent admin attacker.
 $lockedSDDL='D:(D;;DCWPDTSD;;;AU)(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCLCSWRPWPDTLOCRRCWD;;;BA)'
 $unlockedSDDL='D:(A;;CCLCSWLORC;;;AU)(A;;CCLCSWRPWPDTLOCRRCWD;;;SY)(A;;CCLCSWRPWPDTLOCRRCWD;;;BA)'
-function Sc([string[]]$Items) {
+function Invoke-BlueOpsSc([string[]]$Items) {
     $out=@(& "$env:SystemRoot\System32\sc.exe" @Items 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "sc.exe $($Items -join ' ') failed: $($out -join ' ')" }
     return $out
@@ -110,17 +110,17 @@ foreach ($entry in $services.GetEnumerator()) {
     if ($unlockCode -eq 5) {
         Write-Warning "Old ACL blocks repair of $svcName. Taking ownership of this service object; original descriptor saved."
         [BlueOpsServiceRepair]::TakeOwnership($svcName)
-        Sc -Items @('sdset',$svcName,$unlockedSDDL) | Out-Host
+        Invoke-BlueOpsSc -Items @('sdset',$svcName,$unlockedSDDL) | Out-Host
     } elseif ($unlockCode -ne 0) { throw "Could not unlock ${svcName}: $($unlockOutput -join ' ')" }
     try {
-        Sc -Items @('failure',$svcName,'reset=','0','actions=','restart/5000/restart/5000/restart/5000') | Out-Host
-        Sc -Items @('failureflag',$svcName,'1') | Out-Host
+        Invoke-BlueOpsSc -Items @('failure',$svcName,'reset=','0','actions=','restart/5000/restart/5000/restart/5000') | Out-Host
+        Invoke-BlueOpsSc -Items @('failureflag',$svcName,'1') | Out-Host
         if ($svc.Status -ne 'Running') { Start-Service -Name $svcName -ErrorAction Stop }
-        Sc -Items @('qfailure',$svcName) | Out-Host
-        Sc -Items @('qfailureflag',$svcName) | Out-Host
+        Invoke-BlueOpsSc -Items @('qfailure',$svcName) | Out-Host
+        Invoke-BlueOpsSc -Items @('qfailureflag',$svcName) | Out-Host
     } finally {
         # Reapply the restriction even if configuration/start fails.
-        Sc -Items @('sdset',$svcName,$lockedSDDL) | Out-Host
+        Invoke-BlueOpsSc -Items @('sdset',$svcName,$lockedSDDL) | Out-Host
     }
     Write-Host "[OK] $svcName recovery configured; service lock reapplied." -ForegroundColor Green
 }
