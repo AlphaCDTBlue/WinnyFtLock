@@ -51,6 +51,7 @@ foreach ($relative in $required) {
 if ($Check) { Write-Host 'DC identity, required paths and PowerShell syntax checked. No changes made.'; return }
 
 $state=Read-State
+if (-not $state.PasswordsConfirmed) { throw 'Finish Phase 1 password reset and confirm DONE first.' }
 Check-Baselines
 if ((Read-Host 'Confirm domain passwords were reset and you have logged back in: type READY') -cne 'READY') { return }
 Write-Host @'

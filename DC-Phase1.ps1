@@ -41,7 +41,7 @@ function Check-Baselines {
     if ($a.DomainSID -ne $domain.DomainSID.Value -or $a.DC -ine $env:COMPUTERNAME -or $d.Server -ine $env:COMPUTERNAME) { throw 'Baseline identity mismatch.' }
     if (-not (Test-Path (Join-Path $d.Folder 'snapshot.xml'))) { throw 'DNS inventory snapshot is missing.' }
 }
-$required = @('AD_DNS\AD-Guard.ps1','AD_DNS\DNS-Guard.ps1','general\upkeep\Deploy-BlueOps.ps1','general\sessionrevokewin.ps1')
+$required = @('AD_DNS\rotate.ps1','AD_DNS\AD-Guard.ps1','AD_DNS\DNS-Guard.ps1','general\upkeep\Deploy-BlueOps.ps1','general\sessionrevokewin.ps1')
 foreach ($relative in $required) {
     $path=RepoFile $relative
     $tokens=$null; $errors=$null
@@ -50,13 +50,7 @@ foreach ($relative in $required) {
 }
 if ($Check) { Write-Host 'DC identity, required paths and PowerShell syntax checked. No changes made.'; return }
 
-if (-not $RevokeOnly) {
-    if (Test-Path $stateFile) {
-        $old=Read-State
-        Write-Host "Phase 1 was already completed. Backup: $($old.Backup)"
-        Write-Host 'Use -RevokeOnly for the deliberate password/sign-out handoff, or run DC-Phase2.ps1 after relogin.'
-        return
-    }
+if (-not $RevokeOnly -and -not (Test-Path $stateFile)) {
     New-Item -ItemType Directory -Path $store -Force | Out-Null
     & icacls.exe $store /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE) { throw 'Could not secure launcher backup directory.' }
@@ -103,17 +97,23 @@ if (-not $RevokeOnly) {
     [pscustomobject]@{Computer=$env:COMPUTERNAME;DomainSID=$domain.DomainSID.Value;Backup=$backup;Completed=Get-Date;PasswordsConfirmed=$false} | Export-Clixml $stateFile
 }
 $state=Read-State
-Write-Host @'
-Setup finished. Complete and verify domain password rotation before proceeding.
-The repo AD_DNS\rotate.ps1 has hard-coded domain/DC/account settings: REVIEW them first.
-You can run it in another elevated PowerShell window. This launcher does not reset passwords.
-Test a NEW sign-in with the new password and keep console/recovery access available.
-The next tool signs out ALL local interactive sessions (including yours and Grey/team sessions),
-and attempts to terminate inbound SSH sessions on THIS DC. It is not a domain-wide ticket purge.
-'@ -ForegroundColor Yellow
-$answer=Read-Host 'After password rotation and a fresh login test, type REVOKE to sign out; Enter leaves setup saved'
-if ($answer -cne 'REVOKE') { Write-Host 'No sessions revoked. Later run .\DC-Phase1.ps1 -RevokeOnly'; return }
-$state.PasswordsConfirmed=$true
-$state | Export-Clixml $stateFile
-Write-Host 'After reconnecting, run DC-Phase2.ps1. No further setup is queued behind sign-out.'
+if (-not $RevokeOnly -and -not $state.PasswordsConfirmed) {
+    Write-Host 'Starting the password reset tool. Choose accounts, enter passwords, and read its result summary.' -ForegroundColor Cyan
+    Write-Host 'rotate.ps1 must have the correct domain/DC/account list for this competition.' -ForegroundColor Yellow
+    Run 'AD_DNS\rotate.ps1'
+    # The repo rotator can return normally after cancellation or partial failure.
+    # Exit zero alone therefore cannot prove that all requested passwords changed.
+    if ((Read-Host 'If ALL intended resets succeeded, type DONE; otherwise Enter to stop') -cne 'DONE') {
+        Write-Host 'Stopped. Review reset results before rerunning Phase 1; setup backups are retained.'
+        return
+    }
+    $state.PasswordsConfirmed=$true
+    $state | Export-Clixml $stateFile
+}
+if (-not $state.PasswordsConfirmed) { throw 'Complete password rotation through DC-Phase1.ps1 before revoking sessions.' }
+Write-Host 'Phase 1 setup and password-reset handoff complete. Test a fresh login with the new password.' -ForegroundColor Cyan
+Write-Host 'REVOKE signs out ALL local interactive sessions, including you and Grey/team sessions, and attempts SSH termination.' -ForegroundColor Yellow
+$answer=Read-Host 'Type REVOKE when ready to sign out; Enter to stop here'
+if ($answer -cne 'REVOKE') { Write-Host 'Later: .\DC-Phase1.ps1 -RevokeOnly. After relogin: .\DC-Phase2.ps1'; return }
+Write-Host 'Log back in, then run DC-Phase2.ps1.'
 Run 'general\sessionrevokewin.ps1'
