@@ -33,7 +33,7 @@ New-Item -ItemType Directory -Path $temporary | Out-Null
 $changes = New-Object System.Collections.Generic.List[object]
 try {
     foreach ($name in @($manifest.Services)) {
-        if ($name -notmatch '^[A-Za-z0-9_.-]+$') { throw "Invalid service name: $name" }
+        if ($name -notmatch '^[A-Za-z0-9_. -]+$') { throw "Invalid service name: $name" }
         $saved = Join-Path $BackupPath "service-$name.reg"
         if (-not (Test-Path -LiteralPath $saved -PathType Leaf)) { throw "Missing registry backup: $saved" }
         $current = Join-Path $temporary "service-$name.reg"
