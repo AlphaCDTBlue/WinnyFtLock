@@ -7,6 +7,9 @@ OS: Windows Server 2019
 Service: Telnet
 Domain: krusty.krab
 
+TESTING STATUS: NOT TESTED
+These scripts have NOT been tested yet, refrain from deploying and using on competition infra
+
 ## Goal
 
 Secure the Windows machine hosting Telnet before red team
