@@ -6,9 +6,7 @@ IP: 10.111.2.5
 OS: Windows Server 2019
 Service: Telnet
 Domain: krusty.krab
-
-TESTING STATUS: NOT TESTED
-These scripts have NOT been tested yet, refrain from deploying and using on competition infra
+.
 
 ## Goal
 
@@ -70,9 +68,19 @@ The script attempts to:
 - Export Windows Firewall policy
 - Record port 23 listeners
 
-Backups are saved under:
+Backups are saved under the directory containing Backup-Telnet.ps1 (not necessarily the current PowerShell directory):
 
-    .\TelnetBackups\<timestamp>\
+    <script directory>\TelnetBackups\<timestamp>\
+
+For example, if the script is in C:\CDT-Telnet, backups go to:
+
+    C:\CDT-Telnet\TelnetBackups\<timestamp>\
+
+The script uses `$PSScriptRoot` and supports a custom `-BackupRoot` path:
+
+    .\Backup-Telnet.ps1 -BackupRoot "D:\CDT-Backups"
+
+Check the actual destination printed by the script and inspect the folder.
 
 Verify the backup folder exists and inspect manifest.json
 for warnings.
@@ -237,8 +245,9 @@ After identifying a confirmed unauthorized IP:
 
 Replace the example IP with the actual address.
 
-The script displays matching TCP connections and
-Windows sessions.
+The script checks the active Windows Firewall profile is enabled, then displays matching TCP connections and Windows sessions. If an active firewall profile is disabled, it stops without creating rules.
+
+IMPORTANT: A working baseline inbound allow rule for Telnet (TCP 23) must exist for approved clients and scoring infrastructure. Removing an eviction block does NOT override Windows Firewall default inbound blocking.
 
 It then requires you to confirm the block.
 
@@ -264,10 +273,24 @@ To review CDT block rules:
 
     Get-NetFirewallRule -Name "CDT-Block-*"
 
-To remove a block created for the example IP:
+To unblock using the script (preferred):
+
+    .\Evict-HostIP.ps1 -IP "10.111.3.50" -Unblock
+
+Type `UNBLOCK 10.111.3.50` when prompted. This removes only the CDT block rules for that IP; existing allow rules and default firewall policy remain unchanged.
+
+If the script is unavailable, remove the matching rules manually:
 
     Get-NetFirewallRule -Name "CDT-Block-*-10.111.3.50" |
       Remove-NetFirewallRule
+
+After unblocking, test a NEW TCP connection from the approved client. Ping succeeding does not prove TCP 23 is permitted.
+
+For safe testing, run `quser` before using `-LogoffSessionId`. Session IDs are NOT IP addresses. The script refuses to log off its own PowerShell session (for example, ID 1 when you are in session 1). The IP block may already have succeeded before this logoff error; check rule status and unblock if necessary.
+
+To preview without applying changes:
+
+    .\Evict-HostIP.ps1 -IP "10.111.3.50" -WhatIf
 
 ## Step 9 — Restore Telnet if Something Breaks
 
@@ -330,7 +353,9 @@ After reconnecting:
 
 - [ ] Review active sessions and authentication events
 - [ ] Inspect suspicious processes and persistence
+- [ ] Confirm approved Telnet/scoring clients can connect through baseline firewall rules
 - [ ] Block confirmed attacker IPs when necessary
+- [ ] Verify the unblock path and new TCP connection recovery
 - [ ] Keep Telnet restore script ready
 
 Remember: keeping the scored Telnet service operational
