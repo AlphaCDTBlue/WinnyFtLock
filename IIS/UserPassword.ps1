@@ -10,7 +10,9 @@ $LocalAdminAccount = 'jellyfish'
 $GreyTeamUsers = @(
     'kingneptune',
     'paintythepirate',
-    'greyteamadmin'
+    'greyteamadmin',
+    'Administrator',
+    'Admin'
 )
 # ========================================================================
 $DefaultPassword = 'Wardontstop1!'

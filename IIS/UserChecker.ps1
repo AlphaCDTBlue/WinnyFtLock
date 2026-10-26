@@ -1,27 +1,29 @@
 # UserChecker.ps1 - run as Administrator, NO arguments.
-# Loops every 10 seconds (Ctrl+C to stop). Each pass removes every LOCAL user
-# that isn't the one expected local admin account or on the grey team list.
-# Keep this window open. Disconnecting RDP is fine, but do not log off.
+# This only ever looks at LOCAL accounts (Get-LocalUser) - it never sees or
+# touches domain accounts, those are out of scope entirely regardless of name.
+# Loops every 10 seconds (Ctrl+C to stop). Each pass removes any NEW local
+# user that isn't the one expected local admin account, a known built-in, or
+# on the grey team list - i.e. anything an attacker adds locally gets caught
+# and deleted, whatever it's named. Keep this window open. Disconnecting RDP
+# is fine, but do not log off.
 #
-# The 11 packet usernames (mrkrabs, spongebob, etc.) are DOMAIN accounts on
-# this box, per team policy - they should never exist as LOCAL accounts here.
-# A local account using one of those names is not legitimate: it's either a
-# leftover mistake or a red-team account impersonating a real packet user to
-# hide from a name-based allow-list. Those names are therefore NOT allowed
-# below; they're only kept in $WatchForImpostorNames so a match gets called
-# out loudly instead of being removed silently like ordinary junk accounts.
+# Grey team is completely hands-off: never disabled, re-enabled, or removed,
+# even if found disabled. The one local admin account IS actively kept
+# enabled - if something disables it, this re-enables it on the next pass.
 
 # ===== EDIT: the one local admin account name on this box =====
 $LocalAdminAccount = 'jellyfish'
 $GreyTeamUsers = @(
     'kingneptune',
     'paintythepirate',
-    'greyteamadmin'
+    'greyteamadmin',
+    'Administrator',
+    'Admin'
 )
-# Domain-only usernames: flagged specially if ever seen as a LOCAL account.
-$WatchForImpostorNames = @(
-    'mrkrabs', 'spongebob', 'squidward', 'patrick', 'sandy',
-    'gary', 'puff', 'larry', 'mermaidman', 'barnacleboy'
+# Other built-in/provisioning accounts that ship with the box image - never
+# delete these, just disable them if enabled (same treatment as Guest, etc.)
+$OtherBuiltinNames = @(
+    'cloudbase-init'
 )
 # ================================================================
 $IntervalSeconds = 10
@@ -33,17 +35,15 @@ if (-not $isAdmin) { Write-Host 'Run this as Administrator.' -ForegroundColor Re
 if ((Get-CimInstance Win32_OperatingSystem).ProductType -eq 2) {
     Write-Host 'This is a domain controller - local accounts do not exist here. Aborting.' -ForegroundColor Red; exit 1
 }
+if (-not $LocalAdminAccount -or $LocalAdminAccount -match '^REPLACE') {
+    Write-Host 'Set $LocalAdminAccount at the top first. Aborting.' -ForegroundColor Red; exit 1
+}
 
 $meName = $id.Name.Split('\')[-1]
-$allowed = @{}
-foreach ($n in (@($LocalAdminAccount) + @($GreyTeamUsers))) {
-    if ($n -and $n.Trim()) { $allowed[$n.Trim()] = $true }
-}
-$impostorWatch = @{}
-foreach ($n in $WatchForImpostorNames) { if ($n -and $n.Trim()) { $impostorWatch[$n.Trim()] = $true } }
-if ($allowed.Count -eq 0 -or ($allowed.Keys -match '^REPLACE')) {
-    Write-Host 'Set $LocalAdminAccount (and the grey list) at the top first. Aborting.' -ForegroundColor Red; exit 1
-}
+$grey = @{}
+foreach ($n in $GreyTeamUsers) { if ($n -and $n.Trim()) { $grey[$n.Trim()] = $true } }
+$otherBuiltin = @{}
+foreach ($n in $OtherBuiltinNames) { if ($n -and $n.Trim()) { $otherBuiltin[$n.Trim()] = $true } }
 
 $LogDir = Join-Path $env:ProgramData 'BlueOps'
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
@@ -91,8 +91,13 @@ function Invoke-UserCheck {
     $localUsers = @(Get-LocalUser)
     $toRemove = @()
     $toDisable = @()
+    $toEnable = @()
     foreach ($u in $localUsers) {
-        if ($allowed.ContainsKey($u.Name)) { continue }
+        if ($grey.ContainsKey($u.Name)) { continue }
+        if ($u.Name -ieq $LocalAdminAccount) {
+            if (-not $u.Enabled) { $toEnable += $u }
+            continue
+        }
         $sid = $u.SID.Value
         $rid = $sid.Substring($sid.LastIndexOf('-') + 1)
         if ($u.Name -ieq $meName) {
@@ -104,11 +109,18 @@ function Invoke-UserCheck {
             continue
         }
         if (@('501', '503', '504') -contains $rid) { $toDisable += $u; continue }
-        if ($impostorWatch.ContainsKey($u.Name)) {
-            Say "IMPOSTOR  local account '$($u.Name)' uses a DOMAIN-only packet username - this should never exist as a local account. Removing it." 'Red'
-            Log "IMPOSTOR $($u.Name) SID=$($u.SID.Value) - domain-only packet username found as a local account"
-        }
+        if ($otherBuiltin.ContainsKey($u.Name)) { $toDisable += $u; continue }
+        # Anything else is an unrecognized NEW local account - remove it, whatever it's named.
         $toRemove += $u
+    }
+
+    foreach ($u in $toEnable) {
+        try {
+            Enable-LocalUser -SID $u.SID -ErrorAction Stop
+            $script:changes++
+            Say "RE-ENABLED  $($u.Name) - the local admin account was found disabled" 'Cyan'
+            Log "RE-ENABLED $($u.Name) SID=$($u.SID.Value) - local admin account was disabled"
+        } catch { Say "FAIL re-enabling $($u.Name): $($_.Exception.Message)" 'Red' }
     }
 
     foreach ($u in $toDisable) {

@@ -47,7 +47,7 @@ param([Parameter(ParameterSetName='Remove')][switch]$Remove,
 # A hardcoded secret is visible to anyone who can read THIS source file.
 $UserPassword = 'BlueTeam-Session-2026!'
 # Grey Team accounts (including the local administrator account, greyteamadmin).
-$GreyTeamUsers = @('kingneptune', 'paintythepirate', 'greyteamadmin')
+$GreyTeamUsers = @('kingneptune', 'paintythepirate', 'greyteamadmin', 'Administrator', 'Admin')
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -ne 'Desktop' -or -not [Environment]::Is64BitProcess){throw 'Use 64-bit Windows PowerShell 5.1 as Administrator.'}
 $id=[Security.Principal.WindowsIdentity]::GetCurrent()
