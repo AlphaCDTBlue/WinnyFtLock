@@ -41,7 +41,7 @@ function Check-Baselines {
     if ($a.DomainSID -ne $domain.DomainSID.Value -or $a.DC -ine $env:COMPUTERNAME -or $d.Server -ine $env:COMPUTERNAME) { throw 'Baseline identity mismatch.' }
     if (-not (Test-Path (Join-Path $d.Folder 'snapshot.xml'))) { throw 'DNS inventory snapshot is missing.' }
 }
-$required = @('IIS\new_session (1).ps1','IIS\SessionKill.ps1','general\terminal_sessions\logging.ps1','general\IP-Firewall.ps1','AD_DNS\AD-Guard.ps1','AD_DNS\DNS-Guard.ps1')
+$required = @('general\toolkit.ps1','IIS\session.ps1','IIS\SessionKill.ps1','general\terminal_sessions\logging.ps1','general\IP-Firewall.ps1','AD_DNS\AD-Guard.ps1','AD_DNS\DNS-Guard.ps1')
 foreach ($relative in $required) {
     $path=RepoFile $relative
     $tokens=$null; $errors=$null
@@ -54,30 +54,18 @@ $state=Read-State
 if (-not $state.PasswordsConfirmed) { throw 'Finish Phase 1 password reset and confirm DONE first.' }
 Check-Baselines
 if ((Read-Host 'Confirm domain passwords were reset and you have logged back in: type READY') -cne 'READY') { return }
-Write-Host @'
-Terminal tools:
-KICK = SessionKill.ps1: one-time sign-out of OTHER local RDP/console sessions (including team/Grey).
-GATE = new_session (1).ps1: persistent verification gate for new RDP/SSH/WinRM sessions.
-       Review its GreyAccounts defaults first (kingneptune, paintythepirate).
-       Installation may restart SSH/WinRM; use the console/RDP, not SSH/WinRM.
-Enter = already done / skip. To use both, choose KICK, then GATE at the next prompt.
-'@ -ForegroundColor Yellow
-while ($true) {
-    $choice=Read-Host 'KICK, GATE, or Enter to continue'
-    if ([string]::IsNullOrWhiteSpace($choice)) { break }
-    if ($choice -ceq 'KICK') { Run 'IIS\SessionKill.ps1' }
-    elseif ($choice -ceq 'GATE') {
-        if (Get-ScheduledTask -TaskName 'NewSession-Guard' -ErrorAction SilentlyContinue) {
-            Run 'IIS\new_session (1).ps1' '-Action Status'
-        } else {
-            Run 'IIS\new_session (1).ps1' '-Action Install'
-        }
-        $task=Get-ScheduledTask -TaskName 'NewSession-Guard' -ErrorAction Stop
-        $heartbeat=Get-Content "$env:ProgramData\NewSession\status.json" -Raw | ConvertFrom-Json
-        $age=((Get-Date).ToUniversalTime()-([datetimeoffset]$heartbeat.Time).UtcDateTime).TotalSeconds
-        if ($task.State -ne 'Running' -or -not $heartbeat.Healthy -or $age -lt 0 -or $age -gt 15) { throw 'Session gate did not report a healthy running task and fresh heartbeat.' }
-    }
-}
+Write-Host 'SessionKill: signs out OTHER local interactive sessions, including team/Grey. Your session stays.' -ForegroundColor Yellow
+if ((Read-Host 'Type KICK for the one-time sweep, or Enter if already done') -ceq 'KICK') { Run 'IIS\SessionKill.ps1' }
+Write-Host 'Installing current repo terminal protection: RDP/SSH verification, no Grey exemptions; WinRM will be disabled where possible.' -ForegroundColor Yellow
+Write-Host 'Run from console/RDP with SSH/WinRM sessions closed. Enter a separate verification password in the next window.'
+Run 'IIS\session.ps1' '-Ask'
+$task=Get-ScheduledTask -TaskName 'Session-Guard' -ErrorAction Stop
+$heartbeat=Get-Content "$env:ProgramData\Session\status.json" -Raw | ConvertFrom-Json
+$age=((Get-Date).ToUniversalTime()-([datetimeoffset]$heartbeat.Time).UtcDateTime).TotalSeconds
+if ($task.State -ne 'Running' -or -not $heartbeat.Healthy -or $age -lt 0 -or $age -gt 15) { throw 'Session guard did not report a healthy running task and fresh heartbeat.' }
+$sessionState=Get-Content "$env:ProgramData\Session\rollback.json" -Raw | ConvertFrom-Json
+Write-Host "Session guard ready. WinRM mode: $($sessionState.WinRmMode)"
+if ($sessionState.WinRmMode -ne 'Disabled') { Write-Warning 'WinRM was not fully disabled; the session tool is using its fallback. Review its output.' }
 # Service-stop restriction was installed in phase 1; verify, do not overwrite the baseline.
 foreach ($name in @('NTDS','DNS')) {
     $sddl=(& sc.exe sdshow $name) -join ''
@@ -111,14 +99,22 @@ while ($true) {
     if ($action -notin @('Block','Unblock','Status')) { continue }
     Run 'general\IP-Firewall.ps1' "-Action $action -IP $ip"
 }
-Write-Host @'
-Account/logon review: IIS\UserChecker.ps1 cannot run on a DC and deletes local users.
-AD-Guard is the DC-appropriate new-account/disabled-account watcher; K is manual containment.
-It does not prove a logon is illegal. Review the account and IP evidence yourself.
-Strict sequential monitoring follows: AD runs until Q, THEN DNS runs until Q.
-Only one guard runs at a time. To keep both active together requires separate manual windows.
-Do not press B unless you intend to approve changed state as a new baseline.
-'@ -ForegroundColor Yellow
-Run 'AD_DNS\AD-Guard.ps1'
-Run 'AD_DNS\DNS-Guard.ps1'
-Write-Host 'Phase 2 finished. Both guards have exited; neither is monitoring now.' -ForegroundColor Yellow
+function Start-Guard([string]$Relative) {
+    $path=RepoFile $Relative
+    $quoted="'"+$path.Replace("'","''")+"'"
+    $command="try { & $quoted } catch { Write-Host (`$_ | Out-String) -ForegroundColor Red }; Write-Host 'Guard has exited. This window is no longer monitoring.' -ForegroundColor Yellow"
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $child=Start-Process -FilePath $ps -ArgumentList "-NoLogo -NoProfile -NoExit -STA -ExecutionPolicy Bypass -EncodedCommand $encoded" -WorkingDirectory $repo -PassThru
+    Write-Host "Launched $Relative in a separate window (PID $($child.Id)). Check that window for watcher status."
+}
+Write-Host 'Starting both guards. Leave their windows running; Q stops that guard. B deliberately updates its baseline.' -ForegroundColor Cyan
+Start-Guard 'AD_DNS\AD-Guard.ps1'
+Start-Guard 'AD_DNS\DNS-Guard.ps1'
+Write-Host 'Downloading/installing toolkit while AD and DNS guards run. Installer prompts may need attention.' -ForegroundColor Cyan
+Run 'general\toolkit.ps1'
+$missing=@()
+if (-not (Get-Service npcap -ErrorAction SilentlyContinue)) { $missing+='Npcap service' }
+if (-not (Test-Path 'C:\Program Files\Wireshark\Wireshark.exe')) { $missing+='Wireshark' }
+if (-not (Get-ChildItem 'C:\Tools\Sysinternals' -Filter '*.exe' -ErrorAction SilentlyContinue)) { $missing+='Sysinternals executables' }
+if ($missing.Count) { Write-Warning "Toolkit returned but these were not found: $($missing -join ', '). Review installer output; guards were not stopped." }
+Write-Host 'Phase 2 setup finished. Keep both guard windows open and confirm each says it is watching. Q stops an individual guard.' -ForegroundColor Cyan
