@@ -41,7 +41,7 @@ function Check-Baselines {
     if ($a.DomainSID -ne $domain.DomainSID.Value -or $a.DC -ine $env:COMPUTERNAME -or $d.Server -ine $env:COMPUTERNAME) { throw 'Baseline identity mismatch.' }
     if (-not (Test-Path (Join-Path $d.Folder 'snapshot.xml'))) { throw 'DNS inventory snapshot is missing.' }
 }
-$required = @('general\Install.ps1','general\DC-Session.ps1','IIS\SessionKill.ps1','general\terminal_sessions\logging.ps1','general\IP-Firewall.ps1','AD_DNS\AD-Guard.ps1','AD_DNS\DNS-Guard.ps1')
+$required = @('general\Install.ps1','IIS\session.ps1','IIS\SessionKill.ps1','general\terminal_sessions\logging.ps1','general\IP-Firewall.ps1','AD_DNS\AD-Guard.ps1','AD_DNS\DNS-Guard.ps1')
 foreach ($relative in $required) {
     $path=RepoFile $relative
     $tokens=$null; $errors=$null
@@ -56,25 +56,16 @@ Check-Baselines
 if ((Read-Host 'Confirm domain passwords were reset and you have logged back in: type READY') -cne 'READY') { return }
 Write-Host 'SessionKill: signs out OTHER local interactive sessions, including team/Grey. Your session stays.' -ForegroundColor Yellow
 if ((Read-Host 'Type KICK for the one-time sweep, or Enter if already done') -ceq 'KICK') { Run 'IIS\SessionKill.ps1' }
-Write-Host 'Installing RDP/SSH verification with WinRM preserved. Run from console/RDP.' -ForegroundColor Cyan
-$oldRecord=Join-Path $env:ProgramData 'Session\rollback.json'
-if (Test-Path $oldRecord) {
-    $old=Get-Content $oldRecord -Raw | ConvertFrom-Json
-    if ($old.State -ne 'Removed' -and $old.WinRmMode -ne 'Preserved') {
-        Run 'general\DC-Session.ps1' '-Remove'
-    }
-}
-Set-Service WinRM -StartupType Automatic -ErrorAction Stop
-Start-Service WinRM -ErrorAction Stop
-Run 'general\DC-Session.ps1' '-Ask'
+Write-Host 'Installing current repo terminal protection: RDP/SSH verification, no Grey exemptions; WinRM will be disabled where possible.' -ForegroundColor Yellow
+Write-Host 'Run from console/RDP with SSH/WinRM sessions closed. Enter a separate verification password in the next window.'
+Run 'IIS\session.ps1' '-Ask'
 $task=Get-ScheduledTask -TaskName 'Session-Guard' -ErrorAction Stop
 $heartbeat=Get-Content "$env:ProgramData\Session\status.json" -Raw | ConvertFrom-Json
 $age=((Get-Date).ToUniversalTime()-([datetimeoffset]$heartbeat.Time).UtcDateTime).TotalSeconds
 if ($task.State -ne 'Running' -or -not $heartbeat.Healthy -or $age -lt 0 -or $age -gt 15) { throw 'Session guard did not report a healthy running task and fresh heartbeat.' }
 $sessionState=Get-Content "$env:ProgramData\Session\rollback.json" -Raw | ConvertFrom-Json
 Write-Host "Session guard ready. WinRM mode: $($sessionState.WinRmMode)"
-if ($sessionState.WinRmMode -ne 'Preserved') { throw 'Unexpected WinRM mode; expected Preserved.' }
-if ((Get-Service WinRM).Status -ne 'Running') { throw 'WinRM is not running.' }
+if ($sessionState.WinRmMode -ne 'Disabled') { Write-Warning 'WinRM was not fully disabled; the session tool is using its fallback. Review its output.' }
 # Service-stop restriction was installed in phase 1; verify, do not overwrite the baseline.
 foreach ($name in @('NTDS','DNS')) {
     $sddl=(& sc.exe sdshow $name) -join ''
@@ -119,12 +110,11 @@ function Start-Guard([string]$Relative) {
 Write-Host 'Starting both guards. Leave their windows running; Q stops that guard. B deliberately updates its baseline.' -ForegroundColor Cyan
 Start-Guard 'AD_DNS\AD-Guard.ps1'
 Start-Guard 'AD_DNS\DNS-Guard.ps1'
-Write-Host 'Running general/Install.ps1 while AD and DNS guards run. Finish the Npcap installer if it opens.' -ForegroundColor Cyan
+Write-Host 'Downloading/installing toolkit while AD and DNS guards run. Installer prompts may need attention.' -ForegroundColor Cyan
 Run 'general\Install.ps1'
 $missing=@()
-if (-not (Get-Command git.exe -ErrorAction SilentlyContinue) -and -not (Test-Path (Join-Path $env:ProgramFiles 'Git\cmd\git.exe'))) { $missing+='Git' }
-if (-not (Get-Service npcap -ErrorAction SilentlyContinue)) { Write-Warning 'Npcap may still be pending: finish its installer window.' }
+if (-not (Get-Service npcap -ErrorAction SilentlyContinue)) { $missing+='Npcap service' }
 if (-not (Test-Path 'C:\Program Files\Wireshark\Wireshark.exe')) { $missing+='Wireshark' }
 if (-not (Get-ChildItem 'C:\Tools\Sysinternals' -Filter '*.exe' -ErrorAction SilentlyContinue)) { $missing+='Sysinternals executables' }
-if ($missing.Count) { Write-Warning "Install.ps1 returned but these were not found: $($missing -join ', '). Review installer output; guards were not stopped." }
+if ($missing.Count) { Write-Warning "Toolkit returned but these were not found: $($missing -join ', '). Review installer output; guards were not stopped." }
 Write-Host 'Phase 2 setup finished. Keep both guard windows open and confirm each says it is watching. Q stops an individual guard.' -ForegroundColor Cyan
